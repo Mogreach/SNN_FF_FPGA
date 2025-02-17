@@ -1,0 +1,14 @@
+{
+    "signal":[
+        { "name": "SNN_CLK",        "wave": "p......................" },
+        { "name": "rd_en",          "wave": "l.hl..............hl...." },
+        { "name": "rd_vld",         "wave": "l..hl..............hl......" },
+        { "name": "shift_cnt",      "wave": "5...2...3...4...5...2...5" },
+        { "name": "spike",          "wave": "5...2...3...4...5...2...5" },
+        { "name": "neuron_index",   "wave": "5...2...3...4...5...2...5" },
+        { "name": "AER_IN",         "wave": "2....5...2...3...4...5...2...5" },
+        { "name": "REQ",            "wave": "l....h.l.h.l.h.l.h.l.h.l." },
+        { "name": "ACK",            "wave": "l.....h.l.h.l.h.l.h.l.h.l." },
+        { "name": "SNN_CLK",        "wave": "p....." }
+    ]
+}
