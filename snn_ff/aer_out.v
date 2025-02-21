@@ -39,7 +39,7 @@ module aer_out #(
     input  wire           SPI_AER_SRC_CTRL_nNEUR,
     
     // Neuron data inputs -----------------------------
-    input  wire           NEUR_EVENT_OUT,
+    input  wire [3:0]         NEUR_EVENT_OUT,
     input  wire [  M-1:0] CTRL_NEURMEM_ADDR,
     
     // Input from scheduler ---------------------------
@@ -47,6 +47,7 @@ module aer_out #(
   
     // Input from controller --------------------------
     input  wire           CTRL_AEROUT_POP_NEUR,
+    input wire [9:0] CTRL_POST_NEURON_ADDRESS,
     
     // Output to controller ---------------------------
     output reg            AEROUT_CTRL_BUSY,
@@ -61,6 +62,7 @@ module aer_out #(
    reg            AEROUT_ACK_sync_int, AEROUT_ACK_sync, AEROUT_ACK_sync_del; 
    wire           AEROUT_ACK_sync_negedge;
    wire           rst_activity;
+   wire [9:0] CTRL_POST_NEURON_ADDRESS,
    
    
    assign rst_activity = RST || SPI_GATE_ACTIVITY_sync;

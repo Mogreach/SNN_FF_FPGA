@@ -62,6 +62,8 @@ module controller #(
     output reg            CTRL_NEURMEM_CS,
     
     // Outputs to neurons -------------------------------------
+    output reg            CTRL_WR_NEUR_EVENT,
+    output reg            CTRL_RD_NEUR_EVENT,
     output reg    [M-1:0] CTRL_NEURMEM_ADDR, //突触后神经元地址
     output reg            CTRL_NEUR_EVENT, 
     output reg            CTRL_NEUR_TREF,
