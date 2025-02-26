@@ -2,18 +2,18 @@ module synaptic_core #(
     parameter N = 784,
     parameter M = 8
 )(
-    
+    input wire IS_POS,
     // Global inputs ------------------------------------------
-    input  wire           CLK,
+    input  wire CLK,
 
     // Inputs from SPI configuration registers ----------------
-    input  wire           SPI_GATE_ACTIVITY_sync,
+    input  wire SPI_GATE_ACTIVITY_sync,
 
     // Inputs from controller ---------------------------------
     input wire CTRL_SYNARRAY_CS,
     input wire CTRL_SYNARRAY_WE,
-    input wire [9:0] CTRL_PRE_NEURON_ADDRESS,
-    input wire [9:0] CTRL_POST_NEURON_ADDRESS,
+    input wire [15:0] CTRL_SYNARRAY_ADDR,
+    input wire [9:0]  CTRL_POST_NEURON_ADDRESS,
 
     input wire CTRL_SYNA_WR_EVENT,
     input wire CTRL_SYNA_RD_EVENT,
@@ -42,8 +42,7 @@ module synaptic_core #(
     wire [  N-2:0] syn_sign_dummy;
     wire [6:0]  POST_NEUR_S_CNT[3:0];
 
-    assign synarray_addr[15:6] = CTRL_PRE_NEURON_ADDRESS;
-    assign synarray_addr[5:0] = CTRL_POST_NEURON_ADDRESS[7:2];
+    assign synarray_addr = CTRL_SYNARRAY_ADDR;
     assign post_neuron_byte_addr = CTRL_POST_NEURON_ADDRESS[1:0];
 
     assign POST_NEUR_S_CNT[0] = POST_NEUR_S_CNT_0;
@@ -61,7 +60,7 @@ module synaptic_core #(
         // General
         .CTRL_TREF_EVENT(CTRL_TREF_EVENT),
         // From neuron
-        .IS_POS(),    
+        .IS_POS(IS_POS),    
         .POST_SPIKE_CNT(POST_NEUR_S_CNT[i]),
         .PRE_SPIKE_CNT(PRE_NEUR_S_CNT), 
         // From SRAM

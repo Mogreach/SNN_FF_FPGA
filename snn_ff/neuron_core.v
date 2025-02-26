@@ -2,7 +2,6 @@ module neuron_core #(
     parameter N = 784,
     parameter M = 8
 )(
-    input wire  AER_EVENT,
     // Global inputs ------------------------------------------
     input  wire CLK,
     input  wire RST_N,
@@ -26,12 +25,13 @@ module neuron_core #(
     input wire  CTRL_PRE_NEUR_WE,
     input wire  CTRL_POST_NEUR_CS,
     input wire  CTRL_POST_NEUR_WE,
+    input wire  CTRL_PRE_CNT_EN,
     // SPI inputs
     input wire  SPI_GATE_ACTIVITY_sync,
     input wire  [9:0] SPI_POST_NEUR_ADDR,
 
     // Outputs
-    output reg [31:0]NEUR_STATE,
+    output reg [31:0] NEUR_STATE,
     output wire [3:0] NEUR_EVENT_OUT,
     output wire [7:0] PRE_NEUR_S_CNT,
     output wire [6:0] POST_NEUR_S_CNT_0,
@@ -73,19 +73,19 @@ module neuron_core #(
         endcase
     end
 
-    reg neur_event_d;
-    always @(posedge CLK or negedge RST_N)           
-        begin                                        
-            if(!RST_N)                               
-                neur_event_d <= 0;                             
-            else                                    
-                neur_event_d <= CTRL_NEUR_EVENT; 
-        end                                          
+    // reg neur_event_d;
+    // always @(posedge CLK or negedge RST_N)           
+    //     begin                                        
+    //         if(!RST_N)                               
+    //             neur_event_d <= 0;                             
+    //         else                                    
+    //             neur_event_d <= CTRL_NEUR_EVENT; 
+    //     end                                          
 
     pre_neuron pre_neuron_0( 
     .pre_spike_cnt(pre_neuron_sram_out),          // 突触前神经元发放脉冲数量 from SRAM
     .neuron_event(CTRL_NEUR_EVENT),               // synaptic event trigger
-    .neuron_event_pulse(!neur_event_d && neur_event),
+    .neuron_event_pulse(CTRL_PRE_CNT_EN),
     .time_ref_event(CTRL_TREF_EVENT),                // time reference event trigger
     .pre_spike_cnt_next(pre_neuron_sram_in)          // 突触前神经元发放脉冲数量 to SRAM
 );
@@ -102,8 +102,8 @@ module neuron_core #(
             // 突触后神经元膜电位更新
             assign post_neuron_sram_in[11+(i*32): 0+(i*32)] = SPI_GATE_ACTIVITY_sync ? CTRL_POST_NEUR_PROG_DATA[11:0]: IF_neuron_next_mem[i]; 
             // 突触后神经元使能信号更新                 
-            assign post_neuron_sram_in[31+(i*32)] = SPI_GATE_ACTIVITY_sync ? CTRL_POST_NEUR_PROG_DATA[31] : post_neuron_sram_out[31+(i*32)];                            
-
+            // assign post_neuron_sram_in[31+(i*32)] = SPI_GATE_ACTIVITY_sync ? CTRL_POST_NEUR_PROG_DATA[31] : post_neuron_sram_out[31+(i*32)];                            
+            assign post_neuron_sram_in[31+(i*32)] = SPI_GATE_ACTIVITY_sync ? CTRL_POST_NEUR_PROG_DATA[31] : 1'b1;
             if_neuron if_neuron_gen( 
             .post_spike_cnt(post_neuron_sram_out [30+(i*32):24+(i*32)]),          // 突触后神经元发放脉冲数量 from SRAM
             .post_spike_cnt_next(IF_neuron_next_spike_cnt[i]),          // 突触后神经元发放脉冲数量 to SRAM
@@ -127,7 +127,7 @@ module neuron_core #(
         .clk         (CLK),
     
         // Control and data inputs
-        // .ena         (CTRL_PRE_NEUR_CS),
+        // .ena        (CTRL_PRE_NEUR_CS),
         .we         (CTRL_PRE_NEUR_WE),
         .a          (CTRL_PRE_NEURON_ADDRESS),
         .d          (pre_neuron_sram_in),

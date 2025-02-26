@@ -27,30 +27,27 @@
 
 module aer_out #(
 	parameter N = 256,
-	parameter M = 8
+	parameter M = 10
 )(
 
     // Global input ----------------------------------- 
     input  wire           CLK,
     input  wire           RST,
-    
     // Inputs from SPI configuration latches ----------
     input  wire           SPI_GATE_ACTIVITY_sync,
     input  wire           SPI_AER_SRC_CTRL_nNEUR,
-    
     // Neuron data inputs -----------------------------
-    input  wire [3:0]         NEUR_EVENT_OUT,
-    input  wire [  M-1:0] CTRL_NEURMEM_ADDR,
-    
+    input  wire [3:0]     NEUR_EVENT_OUT,
     // Input from scheduler ---------------------------
     input  wire [   11:0] SCHED_DATA_OUT,
-  
     // Input from controller --------------------------
+    input  wire           CTRL_AEROUT_PUSH_NEUR,
     input  wire           CTRL_AEROUT_POP_NEUR,
-    input wire [9:0] CTRL_POST_NEURON_ADDRESS,
+    input  wire           CTRL_AEROUT_POP_TSTEP,
+    input wire [9:0]      CTRL_POST_NEURON_ADDRESS,
     
     // Output to controller ---------------------------
-    output reg            AEROUT_CTRL_BUSY,
+    output wire           AEROUT_CTRL_FINISH,
     
 	// Output 8-bit AER link --------------------------
 	output reg  [  M-1:0] AEROUT_ADDR, 
@@ -59,50 +56,101 @@ module aer_out #(
 );
 
 
-   reg            AEROUT_ACK_sync_int, AEROUT_ACK_sync, AEROUT_ACK_sync_del; 
-   wire           AEROUT_ACK_sync_negedge;
-   wire           rst_activity;
-   wire [9:0] CTRL_POST_NEURON_ADDRESS,
-   
-   
-   assign rst_activity = RST || SPI_GATE_ACTIVITY_sync;
-   
-   // Sync barrier
-   always @(posedge CLK, posedge rst_activity) begin
-		if (rst_activity) begin
-			AEROUT_ACK_sync_int <= 1'b0;
-			AEROUT_ACK_sync	    <= 1'b0;
-			AEROUT_ACK_sync_del <= 1'b0;
-		end
-		else begin
-			AEROUT_ACK_sync_int <= AEROUT_ACK;
-			AEROUT_ACK_sync	    <= AEROUT_ACK_sync_int;
-			AEROUT_ACK_sync_del <= AEROUT_ACK_sync;
-		end
-	end
-    assign AEROUT_ACK_sync_negedge = ~AEROUT_ACK_sync & AEROUT_ACK_sync_del;
+    reg            AEROUT_ACK_sync_int, AEROUT_ACK_sync, AEROUT_ACK_sync_del; 
+    reg            aer_out_addr_last, aer_out_addr_last_int;
+    reg            aer_out_trans; //AEROUT输出事件中
+    reg            fifo_rd_en_int;
+
+    wire           aer_out_start;
+    wire           AEROUT_ACK_sync_negedge;
+    wire           aer_out_addr_last_negedge;
+    wire           rst_activity;
+    wire           fifo_rd_en;
+    wire           fifo_wr_en;
+    wire           fifo_empty;
+    wire           fifo_full;
     
     
+    wire [47:0]    aer_out_fifo_din;
+    wire [11:0]    aer_out_fifo_dout;
+
+    assign rst_activity = RST || SPI_GATE_ACTIVITY_sync;
+    
+    assign fifo_rd_en = CTRL_AEROUT_POP_NEUR & !AEROUT_REQ & !AEROUT_ACK_sync & !fifo_empty & !aer_out_start;// AER空闲，fifo不空，且此时fifo_out不是无效事件
+    assign fifo_wr_en = CTRL_AEROUT_PUSH_NEUR & !fifo_full & (|NEUR_EVENT_OUT);
+
+    assign AEROUT_ACK_sync_negedge = !AEROUT_ACK_sync & AEROUT_ACK_sync_del;
+    assign aer_out_addr_last_negedge = !aer_out_addr_last & aer_out_addr_last_int;
+
+    assign aer_out_start = fifo_rd_en_int && (!(&aer_out_fifo_dout[11:10]));// 无效事件11则不传输
+    assign AEROUT_CTRL_FINISH = aer_out_addr_last_negedge;
+
+    genvar i;
+    generate
+        for (i = 0; i<4; i=i+1) begin
+            assign aer_out_fifo_din[12*(4-i)-1:12*(3-i)] = NEUR_EVENT_OUT[i]? {2'b00,(CTRL_POST_NEURON_ADDRESS+i)} : {2'b11,10'd0} ;
+        end
+    endgenerate
+
+    // Sync barrier
+    always @(posedge CLK, posedge rst_activity) begin
+        if (rst_activity) begin
+            AEROUT_ACK_sync_int <= 1'b0;
+            AEROUT_ACK_sync	    <= 1'b0;
+            AEROUT_ACK_sync_del <= 1'b0;
+            aer_out_addr_last_int <= 1'b0;
+            fifo_rd_en_int <= 1'b0;
+        end
+        else begin
+            AEROUT_ACK_sync_int <= AEROUT_ACK;
+            AEROUT_ACK_sync	    <= AEROUT_ACK_sync_int;
+            AEROUT_ACK_sync_del <= AEROUT_ACK_sync;
+            aer_out_addr_last_int <= aer_out_addr_last;
+            fifo_rd_en_int <= fifo_rd_en;
+        end
+    end
+
+                                                                            
     // Output AER interface
     always @(posedge CLK, posedge rst_activity) begin
-		if (rst_activity) begin
-			AEROUT_ADDR             <= 8'b0;
-			AEROUT_REQ              <= 1'b0;
-            AEROUT_CTRL_BUSY        <= 1'b0;
-		end else begin
-            if ((SPI_AER_SRC_CTRL_nNEUR ? CTRL_AEROUT_POP_NEUR : NEUR_EVENT_OUT) && ~AEROUT_ACK_sync) begin
-                AEROUT_ADDR      <= SPI_AER_SRC_CTRL_nNEUR ? SCHED_DATA_OUT[M-1:0] : CTRL_NEURMEM_ADDR;
+        if (rst_activity) begin
+            AEROUT_ADDR             <= 10'b0;
+            AEROUT_REQ              <= 1'b0;
+            aer_out_trans           <= 1'b0;
+            aer_out_addr_last       <= 1'b0;
+        end else begin
+            // 只有当处于POP_TSTEP，且fifo已排空，且aerout不在传输中，且还没发送tstep_event，才开始发送tstep_event
+            if (CTRL_AEROUT_POP_TSTEP && fifo_empty && !aer_out_trans && !AEROUT_CTRL_FINISH)begin
+                AEROUT_ADDR      <= {2'b01,10'd0};
                 AEROUT_REQ       <= 1'b1;
-                AEROUT_CTRL_BUSY <= 1'b1;
+                aer_out_trans    <= 1'b1;
+                aer_out_addr_last <= 1'b1;
+            end else if ((aer_out_start) && !AEROUT_ACK_sync) begin
+                AEROUT_ADDR      <= aer_out_fifo_dout;
+                AEROUT_REQ       <= 1'b1;
+                aer_out_trans <= 1'b1;
+                aer_out_addr_last <= 1'b0;
             end else if (AEROUT_ACK_sync) begin
                 AEROUT_REQ       <= 1'b0;
-                AEROUT_CTRL_BUSY <= 1'b1;
+                aer_out_trans <= 1'b1;
+                aer_out_addr_last <= aer_out_addr_last;
             end else if (AEROUT_ACK_sync_negedge) begin
                 AEROUT_REQ       <= 1'b0;
-                AEROUT_CTRL_BUSY <= 1'b0;
+                aer_out_trans <= 1'b0;
+                aer_out_addr_last <= 1'b0;
             end
         end
-	end
-
+    end
+    
+    aer_out_fifo aer_out_fifo_0 (
+    .clk(CLK),      // input wire clk
+    .srst(rst_activity),    // input wire srst
+    .din(aer_out_fifo_din),      // input wire [47 : 0] din
+    .wr_en(fifo_wr_en),  // input wire wr_en
+    .rd_en(fifo_rd_en),  // input wire rd_en
+    .dout(aer_out_fifo_dout),    // output wire [11 : 0] dout
+    .full(fifo_full),    // output wire full
+    .empty(fifo_empty)  // output wire empty
+    );
 
 endmodule 

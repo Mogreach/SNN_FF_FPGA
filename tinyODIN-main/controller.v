@@ -354,8 +354,8 @@ module controller #(
             AERIN_ACK           = 1'b0;
             neur_cnt_inc        = 1'b0;
             
-            CTRL_SCHED_VIRTS    = AERIN_ADDR[M+1] ?        AERIN_ADDR[M-1:4]  :              4'b0;
-            CTRL_SCHED_ADDR     = AERIN_ADDR[M+1] ? {4'h0, AERIN_ADDR[  3:0]} : AERIN_ADDR[M-1:0];// 神经元地址
+            CTRL_SCHED_VIRTS    = AERIN_ADDR[M+1] ?        AERIN_ADDR[M-1:4]  :              4'b0;// sched：12位，前四位为区分虚拟事件和神经元事件的编码，4个0为神经元事件，否则是虚拟事件的权重
+            CTRL_SCHED_ADDR     = AERIN_ADDR[M+1] ? {4'h0, AERIN_ADDR[  3:0]} : AERIN_ADDR[M-1:0];// 虚拟事件或神经元事件地址
             CTRL_SCHED_EVENT_IN = 1'b1;
 
         end else if (state == POP_NEUR) begin  

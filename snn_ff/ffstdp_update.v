@@ -1,28 +1,3 @@
-// Copyright (C) 2016-2019 Université catholique de Louvain (UCLouvain), Belgium.
-// Copyright and related rights are licensed under the Solderpad Hardware
-// License, Version 2.0 (the "License"); you may not use this file except in
-// compliance with the License.  You may obtain a copy of the License at
-// http://solderpad.org/licenses/SHL-2.0/. The software, hardware and materials
-// distributed under this License are provided in the hope that it will be useful
-// on an as is basis, without warranties or conditions of any kind, either
-// expressed or implied; without even the implied warranty of merchantability or
-// fitness for a particular purpose. See the Solderpad Hardware License for more
-// detailed permissions and limitations.
-//------------------------------------------------------------------------------
-//
-// "sdsp_update.v" - ODIN SDSP update logic module
-// 
-// Project: ODIN - An online-learning digital spiking neuromorphic processor
-//
-// Author:  C. Frenkel, Université catholique de Louvain (UCLouvain), 04/2017
-//
-// Cite/paper: C. Frenkel, M. Lefebvre, J.-D. Legat and D. Bol, "A 0.086-mm² 12.7-pJ/SOP 64k-Synapse 256-Neuron Online-Learning
-//             Digital Spiking Neuromorphic Processor in 28-nm CMOS," IEEE Transactions on Biomedical Circuits and Systems,
-//             vol. 13, no. 1, pp. 145-158, 2019.
-//
-//------------------------------------------------------------------------------
-
-
 module ffstdp_update #(
     parameter PRE_CNT_WIDTH = 8, //计数0-31
     parameter POST_CNT_WIDTH = 7,
