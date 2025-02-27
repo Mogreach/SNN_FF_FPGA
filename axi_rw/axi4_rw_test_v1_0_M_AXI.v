@@ -968,22 +968,22 @@
 	end
 
 	assign spike = shift[3];//不断输出
-	assign AERIN_ADDR <= (spike)? {2'b00, neuron_index} : AERIN_ADDR;
+	assign AERIN_ADDR = (spike)? {2'b00, neuron_index} : AERIN_ADDR;
 
 
-	input_fifo input_fifo_0 (
-	.rst(!M_AXI_ARESETN),                  // input wire rst
-	.wr_clk(M_AXI_ACLK),            // input wire wr_clk
-	.rd_clk(SNN_CLK),            // input wire rd_clk
-	.din(M_AXI_RDATA),                  // input wire [31 : 0] din
-	.wr_en(rnext & !input_fifo_full),              // input wire wr_en
-	.rd_en(input_fifo_rd_en),              // input wire rd_en
-	.dout( input_fifo_rd_out),                // output wire [3 : 0] dout rd_en拉高后，延迟一周期dout才更新
-	.full(input_fifo_full),                // output wire full
-	.empty(input_fifo_empty),              // output wire empty
-	.wr_rst_busy(),  // output wire wr_rst_busy
-	.rd_rst_busy()  // output wire rd_rst_busy
-	);
+    input_fifo                          input_fifo_0(          
+    .rst                                (!M_AXI_ARESETN            ),// input wire rst
+    .wr_clk                             (M_AXI_ACLK                ),// input wire wr_clk
+    .rd_clk                             (SNN_CLK                   ),// input wire rd_clk
+    .din                                (M_AXI_RDATA               ),// input wire [31 : 0] din
+    .wr_en                              (rnext & !input_fifo_full  ),// input wire wr_en
+    .rd_en                              (input_fifo_rd_en          ),// input wire rd_en
+    .dout                               (input_fifo_rd_out         ),// output wire [3 : 0] dout rd_en拉高后，延迟一周期dout才更新
+    .full                               (input_fifo_full           ),// output wire full
+    .empty                              (input_fifo_empty          ),// output wire empty
+    .wr_rst_busy                        (                          ),// output wire wr_rst_busy
+    .rd_rst_busy                        (                          ) // output wire rd_rst_busy
+    );
 
 
 
