@@ -26,27 +26,29 @@
 
 module Top_test(
     input                               CLK                        ,
-    input                               RST_N                       
+    input                               RST                        ,
+    input  wire        [ 11: 0]         AERIN_ADDR                 ,
+    input  wire                         AERIN_REQ                  ,
+    output wire                         AERIN_ACK                  
 );
     parameter                           M                          = 12    ;
     parameter                           N                          = 784   ;
-    reg                                 RST                         ;
-    reg                                 IS_POS                      ;
-    reg                                 IS_TRAIN                    ;
-    reg                                 SCK                         ;
-    reg                                 MOSI                        ;
-    wire                                MISO                        ;
-    reg                [ M+1: 0]        AERIN_ADDR                  ;
-    reg                                 AERIN_REQ                   ;
-    wire                                AERIN_ACK                   ;
-    wire               [ M-1: 0]        AEROUT_ADDR                 ;
-    wire                                AEROUT_REQ                  ;
-    reg                                 AEROUT_ACK                  ;
-    wire                                SCHED_FULL                  ;
+    reg                                        IS_POS                     ;
+    reg                                        IS_TRAIN                   ;
+    reg                                        SCK                        ;
+    reg                                        MOSI                       ;
+    wire                                       MISO                       ;
+
+    wire                      [ M-1: 0]        AEROUT_ADDR                ;
+    wire                                       AEROUT_REQ                 ;
+    reg                                        AEROUT_ACK                 ;
+    wire                      [31:0]           GOODNESS                   ;
+    wire                                       ONE_SAMPLE_FINISH          ;
+    wire                                       SCHED_FULL                 ;
 
 ODIN_ffstdp#(
-    .N                                  (784                       ),
-    .M                                  (10                        ) 
+   .N              (784            ),
+   .M              (10             )
 )
  u_ODIN_ffstdp(
 // Global input     -------------------------------
@@ -66,9 +68,12 @@ ODIN_ffstdp#(
     .AEROUT_ADDR                        (AEROUT_ADDR               ),
     .AEROUT_REQ                         (AEROUT_REQ                ),
     .AEROUT_ACK                         (AEROUT_ACK                ),
+    .GOODNESS                           (GOODNESS                  ),
+    .ONE_SAMPLE_FINISH                  (ONE_SAMPLE_FINISH         ),
 // Debug ------------------------------------------
-    .SCHED_FULL                         (SCHED_FULL                ) 
+    .SCHED_FULL                         (SCHED_FULL                )
 );
+
 
                                                                    
 endmodule

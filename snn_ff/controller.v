@@ -101,7 +101,8 @@ module controller #(
     // Output to AER output -----------------------------------
     output  reg            CTRL_AEROUT_POP_NEUR,
     output  reg            CTRL_AEROUT_PUSH_NEUR,
-    output  reg            CTRL_AEROUT_POP_TSTEP
+    output  reg            CTRL_AEROUT_POP_TSTEP,
+    output  wire           CTRL_AEROUT_TREF_FINISH
 );
 
 
@@ -122,9 +123,9 @@ module controller #(
     localparam PUSH       = 4'd5;
     localparam POP_NEUR   = 4'd6;
     localparam NEUR_ACT   = 4'd7;
-    localparam POP_TSTEP  = 4'd8;
+    localparam POP_NEUR_OUT  = 4'd8;
     localparam TSTEP_ACT  = 4'd9;
-	localparam POP_AER_OUT= 4'd10;
+	localparam POP_TSTEP= 4'd10;
     localparam TREF       = 4'd11;
     localparam WAIT_SPIDN = 4'd12;
     localparam WAIT_REQDN = 4'd13;
@@ -160,7 +161,8 @@ module controller #(
     assign tref_event     = AERIN_ADDR[11] && !AERIN_ADDR[10];
     assign CTRL_TSTEP_EVENT_negedge = !CTRL_TSTEP_EVENT & CTRL_TSTEP_EVENT_int;
     assign tref_finish = (CTRL_TREF_EVENT && (pre_neur_cnt == 'd784))? 1'b1 : 1'b0; // 在推理更新状态，当突触前神经元计数到784时拉高，跳转至wait
-	//----------------------------------------------------------------------------------
+	assign CTRL_AEROUT_TREF_FINISH = tref_finish;
+    //----------------------------------------------------------------------------------
 	//	SYNC BARRIERS FROM AER AND FROM SPI
 	//----------------------------------------------------------------------------------
     
@@ -239,14 +241,14 @@ module controller #(
 							else					                                                            nextstate = NEUR_ACT;
             POP_NEUR    :   if      (~CTRL_SCHED_POP_N)                                                         nextstate = WAIT;
 							else					                                                            nextstate = POP_NEUR;                
-			TSTEP_ACT   :   if      (ctrl_cnt[8:0] == {8'd60,1'b1})                                             nextstate = POP_TSTEP;
+			TSTEP_ACT   :   if      (ctrl_cnt[8:0] == {8'd60,1'b1})                                             nextstate = POP_NEUR_OUT;
 							else					                                                            nextstate = TSTEP_ACT;
-            POP_TSTEP   :   if      (~CTRL_SCHED_POP_N)                                                         nextstate = POP_AER_OUT;
-							else					                                                            nextstate = POP_TSTEP;
-            POP_AER_OUT :   if      (AEROUT_CTRL_FINISH)                                   
-                                if  ((T_step_cnt == 'd16) && IS_TRAIN)                                          nextstate = TREF;
+            POP_NEUR_OUT:   if      (~CTRL_SCHED_POP_N)                                                         nextstate =POP_TSTEP;
+							else					                                                            nextstate = POP_NEUR_OUT;
+            POP_TSTEP :     if      (AEROUT_CTRL_FINISH)                                   
+                                if  ((T_step_cnt == 'd16))                                                      nextstate = TREF;
                                 else                                                                            nextstate = WAIT;
-                            else                                                                                nextstate = POP_AER_OUT;   
+                            else                                                                                nextstate =POP_TSTEP;   
 			WAIT_SPIDN 	:   if      (~CTRL_PROG_EVENT_sync && ~CTRL_READBACK_EVENT_sync)                        nextstate = WAIT;
 							else					                                                            nextstate = WAIT_SPIDN;
 			WAIT_REQDN 	:   if      (~AERIN_REQ_sync)                                                           nextstate = WAIT;
@@ -257,7 +259,7 @@ module controller #(
     // Control counter
 	always @(posedge CLK, posedge RST)
 		if      (RST)               ctrl_cnt <= 32'd0;
-        else if ((state == WAIT) || (state == POP_AER_OUT))    
+        else if ((state == WAIT) || (state ==POP_TSTEP))    
                                     ctrl_cnt <= 32'd0;
 		else if (CTRL_NEUR_EVENT | CTRL_TSTEP_EVENT | CTRL_TREF_EVENT)
                                     ctrl_cnt <= ctrl_cnt + 32'd1;
@@ -266,7 +268,7 @@ module controller #(
     // Time-multiplexed neuron counter
 	always @(posedge CLK, posedge RST)
 		if      (RST)                                   post_neur_cnt <= 8'd0;
-        else if ((state == WAIT) || (state == POP_AER_OUT))
+        else if ((state == WAIT) || (state ==POP_TSTEP))
                                                         post_neur_cnt <= 8'd0;
 		else if (post_neur_cnt_inc & (CTRL_NEUR_EVENT | CTRL_TSTEP_EVENT | CTRL_TREF_EVENT))  
                                                         post_neur_cnt <= post_neur_cnt + 8'd4;
@@ -487,17 +489,15 @@ module controller #(
             CTRL_PRE_NEUR_CS    = 1'b1;
             CTRL_POST_NEUR_CS   = 1'b1;
             CTRL_SYNARRAY_CS    = 1'b1;
-            // 2个周期进行读写ram
+            // 每2个周期进行读post_ram、读写syna_ram、post_neur_cnt计数
             if (ctrl_cnt[0] == 1'b0) begin
-                CTRL_POST_NEUR_WE   = 1'b0;
                 CTRL_SYNARRAY_WE    = 1'b0;
                 post_neur_cnt_inc   = 1'b0;
             end else begin
-                CTRL_POST_NEUR_WE   = 1'b1;
                 CTRL_SYNARRAY_WE    = 1'b1;
                 post_neur_cnt_inc   = 1'b1;    
             end
-            // 每历遍完对突触后ram读写后，post_neru_cnt计数并更新脉冲计数
+            // 历遍完一轮突触后神经元后，pre_neru_cnt计数并更新突触前脉冲计数
             if (ctrl_cnt[8:0] == {8'd60,1'b1}) begin
                 pre_neur_cnt_inc    = 1'b1;
                 CTRL_PRE_NEUR_WE    = 1'b1;
@@ -506,6 +506,14 @@ module controller #(
                 pre_neur_cnt_inc    = 1'b0;
                 CTRL_PRE_NEUR_WE    = 1'b0;
             end
+            // 当历遍突触前最后一个神经元时，每两个周期更新突触后脉冲计数
+            if ((ctrl_cnt[0] == 1'b0) && (pre_neur_cnt == 'd783)) begin
+                CTRL_POST_NEUR_WE   = 1'b0;
+            end else begin
+                CTRL_POST_NEUR_WE   = 1'b1;   
+            end
+
+
         end
         PUSH : begin
             // To synaptic_core
@@ -702,7 +710,7 @@ module controller #(
                 post_neur_cnt_inc       = 1'b1;    
             end
         end
-        POP_TSTEP : begin
+        POP_NEUR_OUT : begin
             // To synaptic_core
             CTRL_SYNARRAY_ADDR  = 15'b0;
             CTRL_SYNARRAY_CS    = 1'b0;
@@ -750,7 +758,7 @@ module controller #(
             CTRL_SCHED_POP_N    = 1'b0;
         end
         
-        POP_AER_OUT : begin
+       POP_TSTEP : begin
             // To synaptic_core
             CTRL_SYNARRAY_ADDR  = 15'b0;
             CTRL_SYNARRAY_CS    = 1'b0;

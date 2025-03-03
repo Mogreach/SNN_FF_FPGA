@@ -47,7 +47,8 @@ module ODIN_ffstdp #(
     output wire        [ M-1: 0]        AEROUT_ADDR                ,
     output wire                         AEROUT_REQ                 ,
     input  wire                         AEROUT_ACK                 ,
-
+    output wire        [31:0]           GOODNESS                   ,
+    output wire                         ONE_SAMPLE_FINISH          ,
     // Debug ------------------------------------------
     output wire                         SCHED_FULL                  
 );
@@ -63,6 +64,7 @@ module ODIN_ffstdp #(
     // AER output
     wire                                AEROUT_CTRL_BUSY            ;
     wire                                AEROUT_CTRL_FINISH          ;
+
     
     // SPI + parameter bank
     wire                                SPI_GATE_ACTIVITY,        SPI_GATE_ACTIVITY_sync;
@@ -108,6 +110,7 @@ module ODIN_ffstdp #(
     wire                                CTRL_PRE_CNT_EN             ;// 预神经元计数使能信号
     wire                                CTRL_AEROUT_POP_TSTEP       ;
     wire                                CTRL_AEROUT_PUSH_NEUR       ;
+    wire                                CTRL_AEROUT_TREF_FINISH     ;
     // Synaptic core
     wire               [  31: 0]        SYNARRAY_RDATA              ;
     wire               [  31: 0]        synarray_rdata              ;// 突触数组读数据
@@ -142,25 +145,47 @@ module ODIN_ffstdp #(
     //----------------------------------------------------------------------------------
 	//	AER OUT
 	//----------------------------------------------------------------------------------
-    aer_out #(
-    .N                                  (256                       ),
-    .M                                  (10                        ) 
-    ) aer_out_inst (
-    .CLK                                (CLK                       ),
-    .RST                                (RST_sync                  ),
-    .SPI_GATE_ACTIVITY_sync             (SPI_GATE_ACTIVITY_sync    ),
-    .SPI_AER_SRC_CTRL_nNEUR             (SPI_AER_SRC_CTRL_nNEUR    ),
-    .NEUR_EVENT_OUT                     (NEUR_EVENT_OUT            ),
-    .SCHED_DATA_OUT                     (SCHED_DATA_OUT            ),
-    .CTRL_AEROUT_PUSH_NEUR              (CTRL_AEROUT_PUSH_NEUR     ),
-    .CTRL_AEROUT_POP_NEUR               (CTRL_AEROUT_POP_NEUR      ),
-    .CTRL_AEROUT_POP_TSTEP              (CTRL_AEROUT_POP_TSTEP     ),
-    .CTRL_POST_NEURON_ADDRESS           (CTRL_POST_NEURON_ADDRESS  ),
-    .AEROUT_CTRL_FINISH                 (AEROUT_CTRL_FINISH        ),
-    .AEROUT_ADDR                        (AEROUT_ADDR               ),
-    .AEROUT_REQ                         (AEROUT_REQ                ),
-    .AEROUT_ACK                         (AEROUT_ACK                ) 
+
+
+    aer_out#(
+    .N              (256            ),
+    .M              (10             )
+    )
+    u_aer_out(
+    // Global input -----------------------------------
+        .CLK                                (CLK                       ),
+        .RST                                (RST                       ),
+    // Inputs from SPI configuration latches ----------
+        .SPI_GATE_ACTIVITY_sync             (SPI_GATE_ACTIVITY_sync    ),
+        .SPI_AER_SRC_CTRL_nNEUR             (SPI_AER_SRC_CTRL_nNEUR    ),
+    // Neuron data inputs -----------------------------
+        .NEUR_EVENT_OUT                     (NEUR_EVENT_OUT            ),
+    // Input from scheduler ---------------------------
+        .SCHED_DATA_OUT                     (SCHED_DATA_OUT            ),
+    // Input from controller --------------------------
+        .CTRL_TREF_EVENT                    (CTRL_TREF_EVENT           ),
+        .CTRL_POST_NEUR_CS                  (CTRL_POST_NEUR_CS         ),
+        .CTRL_POST_NEUR_WE                  (CTRL_POST_NEUR_WE         ),
+        .CTRL_AEROUT_PUSH_NEUR              (CTRL_AEROUT_PUSH_NEUR     ),
+        .CTRL_AEROUT_POP_NEUR               (CTRL_AEROUT_POP_NEUR      ),
+        .CTRL_AEROUT_POP_TSTEP              (CTRL_AEROUT_POP_TSTEP     ),
+        .CTRL_POST_NEURON_ADDRESS           (CTRL_POST_NEURON_ADDRESS  ),
+        .CTRL_AEROUT_TREF_FINISH            (CTRL_AEROUT_TREF_FINISH   ),
+    // Inputs from neurons ------------------------------------
+        .POST_NEUR_S_CNT_0                  (POST_NEUR_S_CNT_0         ),
+        .POST_NEUR_S_CNT_1                  (POST_NEUR_S_CNT_1         ),
+        .POST_NEUR_S_CNT_2                  (POST_NEUR_S_CNT_2         ),
+        .POST_NEUR_S_CNT_3                  (POST_NEUR_S_CNT_3         ),
+    // Output to controller ---------------------------
+        .AEROUT_CTRL_FINISH                 (AEROUT_CTRL_FINISH        ),
+    // Output 8-bit AER link --------------------------
+        .AEROUT_ADDR                        (AEROUT_ADDR               ),
+        .AEROUT_REQ                         (AEROUT_REQ                ),
+        .AEROUT_ACK                         (AEROUT_ACK                ),
+        .GOODNESS                           (GOODNESS                  ),
+        .ONE_SAMPLE_FINISH                  (ONE_SAMPLE_FINISH         )
     );
+
     
     //----------------------------------------------------------------------------------
 	//	SPI + parameter bank
@@ -196,6 +221,7 @@ module ODIN_ffstdp #(
         // Global Inputs ------------------------------------------
     .CLK                                (CLK                       ),// 时钟信号
     .RST                                (RST_sync                  ),// 复位信号
+    .IS_TRAIN                           (IS_TRAIN                  ),// 训练模式
 
         // Inputs from AER ----------------------------------------
     .AERIN_ADDR                         (AERIN_ADDR                ),// AER 输入地址
@@ -260,7 +286,8 @@ module ODIN_ffstdp #(
         // Outputs to AER Output -----------------------------------
     .CTRL_AEROUT_POP_NEUR               (CTRL_AEROUT_POP_NEUR      ),// AER 输出弹出神经元事件
     .CTRL_AEROUT_PUSH_NEUR              (CTRL_AEROUT_PUSH_NEUR     ),// AER 输出推送神经元事件
-    .CTRL_AEROUT_POP_TSTEP              (CTRL_AEROUT_POP_TSTEP     ) // AER 输出弹出时间步事件
+    .CTRL_AEROUT_POP_TSTEP              (CTRL_AEROUT_POP_TSTEP     ),// AER 输出弹出时间步事件
+    .CTRL_AEROUT_TREF_FINISH            (CTRL_AEROUT_TREF_FINISH   ) // AER 输出时间参考完成事件
     );
 
     //----------------------------------------------------------------------------------
@@ -286,29 +313,36 @@ module ODIN_ffstdp #(
     //----------------------------------------------------------------------------------
 	//	Synaptic core
 	//----------------------------------------------------------------------------------
-    synaptic_core #(
-    .N                                  (784                       ),
-    .M                                  (8                         ) 
-    ) synaptic_core_inst (
-    .IS_POS                             (IS_POS                    ),
-    .CLK                                (CLK                       ),
-    .SPI_GATE_ACTIVITY_sync             (SPI_GATE_ACTIVITY_sync    ),
-    .CTRL_SYNARRAY_CS                   (CTRL_SYNARRAY_CS          ),
-    .CTRL_SYNARRAY_WE                   (CTRL_SYNARRAY_WE          ),
-    .CTRL_SYNARRAY_ADDR                 (CTRL_SYNARRAY_ADDR        ),
-    .CTRL_POST_NEURON_ADDRESS           (CTRL_POST_NEURON_ADDRESS  ),
-    .CTRL_SYNA_WR_EVENT                 (CTRL_SYNA_WR_EVENT        ),
-    .CTRL_SYNA_RD_EVENT                 (CTRL_SYNA_RD_EVENT        ),
-    .CTRL_SYNA_PROG_DATA                (CTRL_SYNA_PROG_DATA       ),
-    .CTRL_NEUR_EVENT                    (CTRL_NEUR_EVENT           ),
-    .CTRL_TSTEP_EVENT                   (CTRL_TSTEP_EVENT          ),
-    .CTRL_TREF_EVENT                    (CTRL_TREF_EVENT           ),
-    .PRE_NEUR_S_CNT                     (PRE_NEUR_S_CNT            ),
-    .POST_NEUR_S_CNT_0                  (POST_NEUR_S_CNT_0         ),
-    .POST_NEUR_S_CNT_1                  (POST_NEUR_S_CNT_1         ),
-    .POST_NEUR_S_CNT_2                  (POST_NEUR_S_CNT_2         ),
-    .POST_NEUR_S_CNT_3                  (POST_NEUR_S_CNT_3         ),
-    .synarray_rdata                     (synarray_rdata            ) 
+    synaptic_core#(
+    .N              (784            ),
+    .M              (8              )
+    )
+    u_synaptic_core(
+        .IS_POS                             (IS_POS                    ),
+        .IS_TRAIN                           (IS_TRAIN                  ),
+    // Global inputs ------------------------------------------
+        .CLK                                (CLK                       ),
+    // Inputs from SPI configuration registers ----------------
+        .SPI_GATE_ACTIVITY_sync             (SPI_GATE_ACTIVITY_sync    ),
+    // Inputs from controller ---------------------------------
+        .CTRL_SYNARRAY_CS                   (CTRL_SYNARRAY_CS          ),
+        .CTRL_SYNARRAY_WE                   (CTRL_SYNARRAY_WE          ),
+        .CTRL_SYNARRAY_ADDR                 (CTRL_SYNARRAY_ADDR        ),
+        .CTRL_POST_NEURON_ADDRESS           (CTRL_POST_NEURON_ADDRESS  ),
+        .CTRL_SYNA_WR_EVENT                 (CTRL_SYNA_WR_EVENT        ),
+        .CTRL_SYNA_RD_EVENT                 (CTRL_SYNA_RD_EVENT        ),
+        .CTRL_SYNA_PROG_DATA                (CTRL_SYNA_PROG_DATA       ),
+        .CTRL_NEUR_EVENT                    (CTRL_NEUR_EVENT           ),
+        .CTRL_TSTEP_EVENT                   (CTRL_TSTEP_EVENT          ),
+        .CTRL_TREF_EVENT                    (CTRL_TREF_EVENT           ),
+    // Inputs from neurons ------------------------------------
+        .PRE_NEUR_S_CNT                     (PRE_NEUR_S_CNT            ),
+        .POST_NEUR_S_CNT_0                  (POST_NEUR_S_CNT_0         ),
+        .POST_NEUR_S_CNT_1                  (POST_NEUR_S_CNT_1         ),
+        .POST_NEUR_S_CNT_2                  (POST_NEUR_S_CNT_2         ),
+        .POST_NEUR_S_CNT_3                  (POST_NEUR_S_CNT_3         ),
+    // Outputs ------------------------------------------------
+        .synarray_rdata                     (synarray_rdata            )
     );
 
     

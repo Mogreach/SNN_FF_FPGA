@@ -6,8 +6,9 @@ module ffstdp_update #(
     // Inputs
     // General
     input  wire             CTRL_TREF_EVENT,
-    // From neuron
-    input  wire             IS_POS,    
+    input  wire             IS_POS,   
+    input  wire             IS_TRAIN,
+    // From neuron 
     input  wire [POST_CNT_WIDTH-1:0]       POST_SPIKE_CNT,
     input  wire [PRE_CNT_WIDTH-1:0]        PRE_SPIKE_CNT, 
     // From SRAM
@@ -43,7 +44,7 @@ module ffstdp_update #(
     assign overflow = (WSYN_CURR[WEIGHT_WIDTH-1]==delta_w_signed[WEIGHT_WIDTH-1]) && (new_w_result[WEIGHT_WIDTH-1]!=WSYN_CURR[WEIGHT_WIDTH-1]);
 
 	always @(*) begin
-		if      (CTRL_TREF_EVENT) WSYN_NEW = overflow? 
+		if      (CTRL_TREF_EVENT && IS_TRAIN) WSYN_NEW = overflow? 
                                             (new_w_result[WEIGHT_WIDTH-1] == 1'b1)? max_value : min_value 
                                             : new_w_result;
 		else    WSYN_NEW = WSYN_CURR;

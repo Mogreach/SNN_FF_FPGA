@@ -41,10 +41,19 @@ module aer_out #(
     // Input from scheduler ---------------------------
     input  wire [   11:0] SCHED_DATA_OUT,
     // Input from controller --------------------------
+    input  wire           CTRL_TREF_EVENT,
+    input  wire           CTRL_POST_NEUR_CS, 
+    input  wire           CTRL_POST_NEUR_WE, 
     input  wire           CTRL_AEROUT_PUSH_NEUR,
     input  wire           CTRL_AEROUT_POP_NEUR,
     input  wire           CTRL_AEROUT_POP_TSTEP,
-    input wire [9:0]      CTRL_POST_NEURON_ADDRESS,
+    input  wire [9:0]     CTRL_POST_NEURON_ADDRESS,
+    input  wire           CTRL_AEROUT_TREF_FINISH,
+    // Inputs from neurons ------------------------------------
+    input wire [6:0]      POST_NEUR_S_CNT_0,
+    input wire [6:0]      POST_NEUR_S_CNT_1,
+    input wire [6:0]      POST_NEUR_S_CNT_2,
+    input wire [6:0]      POST_NEUR_S_CNT_3,
     
     // Output to controller ---------------------------
     output wire           AEROUT_CTRL_FINISH,
@@ -52,45 +61,99 @@ module aer_out #(
 	// Output 8-bit AER link --------------------------
 	output reg  [  M-1:0] AEROUT_ADDR, 
 	output reg  	      AEROUT_REQ,
-	input  wire 	      AEROUT_ACK
+	input  wire 	      AEROUT_ACK,
+
+    output reg [31:0]     GOODNESS,
+    output wire           ONE_SAMPLE_FINISH
 );
 
+    reg                [  31: 0]        goodness                    ;
+    reg                                 AEROUT_ACK_sync_int,      AEROUT_ACK_sync,AEROUT_ACK_sync_del;
+    reg                                 aer_out_addr_last,        aer_out_addr_last_int;
+    reg                                 aer_out_trans               ;//AEROUT输出事件中
+    reg                                 fifo_rd_en_int              ;
+    reg                                 goodness_en_d0              ;
+    reg                                 goodness_en_d1              ;
+    reg                [   2: 0]        ctrl_tref_finish_delay      ;
 
-    reg            AEROUT_ACK_sync_int, AEROUT_ACK_sync, AEROUT_ACK_sync_del; 
-    reg            aer_out_addr_last, aer_out_addr_last_int;
-    reg            aer_out_trans; //AEROUT输出事件中
-    reg            fifo_rd_en_int;
-
-    wire           aer_out_start;
-    wire           AEROUT_ACK_sync_negedge;
-    wire           aer_out_addr_last_negedge;
-    wire           rst_activity;
-    wire           fifo_rd_en;
-    wire           fifo_wr_en;
-    wire           fifo_empty;
-    wire           fifo_full;
+    wire                                aer_out_start               ;
+    wire                                AEROUT_ACK_sync_negedge     ;
+    wire                                aer_out_addr_last_negedge   ;
+    wire                                rst_activity                ;
+    wire                                fifo_rd_en                  ;
+    wire                                fifo_wr_en                  ;
+    wire                                fifo_empty                  ;
+    wire                                fifo_full                   ;
+    wire                                goodness_en                 ;
     
     
-    wire [47:0]    aer_out_fifo_din;
-    wire [11:0]    aer_out_fifo_dout;
-
-    assign rst_activity = RST || SPI_GATE_ACTIVITY_sync;
     
-    assign fifo_rd_en = CTRL_AEROUT_POP_NEUR & !AEROUT_REQ & !AEROUT_ACK_sync & !fifo_empty & !aer_out_start;// AER空闲，fifo不空，且此时fifo_out不是无效事件
-    assign fifo_wr_en = CTRL_AEROUT_PUSH_NEUR & !fifo_full & (|NEUR_EVENT_OUT);
+    wire               [  47: 0]        aer_out_fifo_din            ;
+    wire               [  11: 0]        aer_out_fifo_dout           ;
+    wire               [   6: 0]        post_neur_cnt[3:0]          ;
+    wire               [   9: 0]        post_neur_goodness[3:0]     ;
+    wire               [  10: 0]        post_neur_goodness_add1     ;
+    wire               [  10: 0]        post_neur_goodness_add2     ;
+    wire               [  11: 0]        post_neur_goodness_sum      ;
 
-    assign AEROUT_ACK_sync_negedge = !AEROUT_ACK_sync & AEROUT_ACK_sync_del;
-    assign aer_out_addr_last_negedge = !aer_out_addr_last & aer_out_addr_last_int;
+    assign                              rst_activity                = RST || SPI_GATE_ACTIVITY_sync;
+    // AER空闲，fifo不空，且此时fifo_out不是无效事件
+    assign                              fifo_rd_en                  = CTRL_AEROUT_POP_NEUR & !AEROUT_REQ & !AEROUT_ACK_sync & !fifo_empty & !aer_out_start;
+    assign                              fifo_wr_en                  = CTRL_AEROUT_PUSH_NEUR & !fifo_full & (|NEUR_EVENT_OUT);
 
-    assign aer_out_start = fifo_rd_en_int && (!(&aer_out_fifo_dout[11:10]));// 无效事件11则不传输
-    assign AEROUT_CTRL_FINISH = aer_out_addr_last_negedge;
+    assign                              AEROUT_ACK_sync_negedge     = !AEROUT_ACK_sync & AEROUT_ACK_sync_del;
+    assign                              aer_out_addr_last_negedge   = !aer_out_addr_last & aer_out_addr_last_int;
+
+    assign                              aer_out_start               = fifo_rd_en_int && (!(&aer_out_fifo_dout[11:10]));// 无效事件11则不传输
+    assign                              AEROUT_CTRL_FINISH          = aer_out_addr_last_negedge;
+
+    assign                              post_neur_cnt[0]            = POST_NEUR_S_CNT_0;
+    assign                              post_neur_cnt[1]            = POST_NEUR_S_CNT_1;
+    assign                              post_neur_cnt[2]            = POST_NEUR_S_CNT_2;
+    assign                              post_neur_cnt[3]            = POST_NEUR_S_CNT_3;
+
+    assign                              ONE_SAMPLE_FINISH           = ctrl_tref_finish_delay[2];
 
     genvar i;
     generate
         for (i = 0; i<4; i=i+1) begin
-            assign aer_out_fifo_din[12*(4-i)-1:12*(3-i)] = NEUR_EVENT_OUT[i]? {2'b00,(CTRL_POST_NEURON_ADDRESS+i)} : {2'b11,10'd0} ;
+            assign aer_out_fifo_din[12*(4-i)-1:12*(3-i)]= NEUR_EVENT_OUT[i]? {2'b00,(CTRL_POST_NEURON_ADDRESS+i)} : {2'b11,10'd0};
+            goodness_mult goodness_square (
+            .CLK                                (CLK                       ),// input wire CLK
+            .A                                  (post_neur_cnt[i]          ),// input wire [4 : 0] A
+            .B                                  (post_neur_cnt[i]          ),// input wire [4 : 0] B
+            .P                                  (post_neur_goodness[i]     ) // output wire [9 : 0] P
+                    );
         end
     endgenerate
+
+    goodness_adder_1 goodness_adder1 (
+    .A                                  (post_neur_goodness[0]     ),// input wire [9 : 0] A
+    .B                                  (post_neur_goodness[1]     ),// input wire [9 : 0] B
+    .S                                  (post_neur_goodness_add1   ) // output wire [10 : 0] S
+    );
+    goodness_adder_1 goodness_adder2 (
+    .A                                  (post_neur_goodness[2]     ),// input wire [9 : 0] A
+    .B                                  (post_neur_goodness[3]     ),// input wire [9 : 0] B
+    .S                                  (post_neur_goodness_add2   ) // output wire [10 : 0] S
+    );
+    goodness_adder_2 goodness_adder3 (
+    .A                                  (post_neur_goodness_add1   ),// input wire [10 : 0] A
+    .B                                  (post_neur_goodness_add2   ),// input wire [10 : 0] B
+    .S                                  (post_neur_goodness_sum    ) // output wire [11 : 0] S
+    );
+
+
+    always @(posedge CLK or posedge rst_activity)           
+        begin                                        
+            if(rst_activity || ctrl_tref_finish_delay[2])                               
+                GOODNESS <= 'd0;                         
+            else if(goodness_en_d1)                                
+                GOODNESS <= GOODNESS + post_neur_goodness_sum;              
+            else   
+                GOODNESS <= GOODNESS;                                  
+        end                                          
+
 
     // Sync barrier
     always @(posedge CLK, posedge rst_activity) begin
@@ -100,6 +163,9 @@ module aer_out #(
             AEROUT_ACK_sync_del <= 1'b0;
             aer_out_addr_last_int <= 1'b0;
             fifo_rd_en_int <= 1'b0;
+            goodness_en_d0 <= 1'b0;
+            goodness_en_d1 <= 1'b0;
+            ctrl_tref_finish_delay <= 3'b0;
         end
         else begin
             AEROUT_ACK_sync_int <= AEROUT_ACK;
@@ -107,6 +173,9 @@ module aer_out #(
             AEROUT_ACK_sync_del <= AEROUT_ACK_sync;
             aer_out_addr_last_int <= aer_out_addr_last;
             fifo_rd_en_int <= fifo_rd_en;
+            goodness_en_d0 <= goodness_en;
+            goodness_en_d1 <= goodness_en_d0;
+            ctrl_tref_finish_delay <= {ctrl_tref_finish_delay[1:0],CTRL_AEROUT_TREF_FINISH};
         end
     end
 
@@ -152,5 +221,6 @@ module aer_out #(
     .full(fifo_full),    // output wire full
     .empty(fifo_empty)  // output wire empty
     );
+    
 
 endmodule 

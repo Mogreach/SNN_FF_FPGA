@@ -3,6 +3,7 @@ module synaptic_core #(
     parameter M = 8
 )(
     input wire IS_POS,
+    input wire IS_TRAIN,
     // Global inputs ------------------------------------------
     input  wire CLK,
 
@@ -59,8 +60,9 @@ module synaptic_core #(
         // Inputs
         // General
         .CTRL_TREF_EVENT(CTRL_TREF_EVENT),
-        // From neuron
-        .IS_POS(IS_POS),    
+        .IS_POS(IS_POS),           
+        .IS_TRAIN(IS_TRAIN),
+        // From neuron 
         .POST_SPIKE_CNT(POST_NEUR_S_CNT[i]),
         .PRE_SPIKE_CNT(PRE_NEUR_S_CNT), 
         // From SRAM
