@@ -29,12 +29,15 @@ module Top_test(
     input                               RST                        ,
     input  wire        [ 11: 0]         AERIN_ADDR                 ,
     input  wire                         AERIN_REQ                  ,
-    output wire                         AERIN_ACK                  
+    input  wire                         IS_POS                     ,
+    input  wire                         IS_TRAIN                   ,
+    output wire                         AERIN_ACK                  ,
+    output wire        [  31: 0]        GOODNESS                   ,
+    output wire                         PROCESS_DONE
 );
     parameter                           M                          = 12    ;
     parameter                           N                          = 784   ;
-    reg                                        IS_POS                     ;
-    reg                                        IS_TRAIN                   ;
+
     reg                                        SCK                        ;
     reg                                        MOSI                       ;
     wire                                       MISO                       ;
@@ -42,10 +45,11 @@ module Top_test(
     wire                      [ M-1: 0]        AEROUT_ADDR                ;
     wire                                       AEROUT_REQ                 ;
     reg                                        AEROUT_ACK                 ;
-    wire                      [31:0]           GOODNESS                   ;
+    
     wire                                       ONE_SAMPLE_FINISH          ;
     wire                                       SCHED_FULL                 ;
-
+    
+    assign PROCESS_DONE = ONE_SAMPLE_FINISH;
 ODIN_ffstdp#(
    .N              (784            ),
    .M              (10             )

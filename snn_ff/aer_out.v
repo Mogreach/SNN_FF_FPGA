@@ -75,6 +75,9 @@ module aer_out #(
     reg                                 goodness_en_d0              ;
     reg                                 goodness_en_d1              ;
     reg                [   2: 0]        ctrl_tref_finish_delay      ;
+    // 路径太长，违反时序，增加一级寄存器
+    reg                                 fifo_wr_en_d0               ;
+    reg                [  47: 0]        aer_out_fifo_din_d0         ;
 
     wire                                aer_out_start               ;
     wire                                AEROUT_ACK_sync_negedge     ;

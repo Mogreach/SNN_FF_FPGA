@@ -6,11 +6,15 @@
 		// Users to add parameters here
 		parameter TIME_TOTAL_STEP = 16,
 		parameter DATA_SIZE = 784,
+		parameter TOTAL_TRAIN_SIZE = 2 * 1000, // 训练样本数（含正负样本）
+		parameter TOTAL_TEST_SIZE  = 10* 100, //  测试样本数
+		parameter  C_M_TARGET_SLAVE_WRITE_ADDR  = 32'h01900000, // 写基地址
+		parameter  C_M_TARGET_SLAVE_READ_ADDR	= 32'h00010000, // 读基地址
+		parameter integer C_M_AXI_READ_BURST_LEN	= 4, // 读突发长度
+		parameter integer C_M_AXI_WRITE_BURST_LEN	= 1, // 写突发长度
 		// User parameters ends
 		// Do not modify the parameters beyond this line
 		// Parameters of Axi Master Bus Interface M_AXI
-		parameter  C_M_AXI_TARGET_SLAVE_BASE_ADDR	= 32'h00010000, //基地址
-		parameter integer C_M_AXI_BURST_LEN	= 4,
 		parameter integer C_M_AXI_ID_WIDTH	= 1,
 		parameter integer C_M_AXI_ADDR_WIDTH	= 32,
 		parameter integer C_M_AXI_DATA_WIDTH	= 32,
@@ -22,7 +26,14 @@
 	)
 	(
 		// Users to add ports here
-
+		input  wire                         PROCESS_DONE               ,
+		input  wire        [  31: 0]        GOODNESS                   ,
+		input  wire                         SNN_CLK                    ,
+		input  wire                         AER_IN_ACK                 ,
+		output wire                         AER_IN_REQ                 ,
+		output wire        [  11: 0]        AER_IN_ADDR                ,
+    	output wire                         IS_POS                     ,
+		output wire   						IS_TRAIN                   ,
 		// User ports ends
 		// Do not modify the ports beyond this line
 
@@ -79,9 +90,14 @@
 // Instantiation of Axi Bus Interface M_AXI
 	axi4_rw_test_v1_0_M_AXI # ( 
 		.TIME_TOTAL_STEP(TIME_TOTAL_STEP),
-		.DATA_SIZE(DATA_SIZE),
-		.C_M_TARGET_SLAVE_BASE_ADDR(C_M_AXI_TARGET_SLAVE_BASE_ADDR),
-		.C_M_AXI_BURST_LEN(C_M_AXI_BURST_LEN),
+		.DATA_SIZE      (DATA_SIZE),
+		.TOTAL_TRAIN_SIZE(TOTAL_TRAIN_SIZE),
+		.TOTAL_TEST_SIZE(TOTAL_TEST_SIZE),
+		.C_M_TARGET_SLAVE_WRITE_ADDR(C_M_TARGET_SLAVE_WRITE_ADDR),
+		.C_M_TARGET_SLAVE_READ_ADDR(C_M_TARGET_SLAVE_READ_ADDR),
+		.C_M_AXI_READ_BURST_LEN(C_M_AXI_READ_BURST_LEN),
+		.C_M_AXI_WRITE_BURST_LEN(C_M_AXI_WRITE_BURST_LEN),
+		
 		.C_M_AXI_ID_WIDTH(C_M_AXI_ID_WIDTH),
 		.C_M_AXI_ADDR_WIDTH(C_M_AXI_ADDR_WIDTH),
 		.C_M_AXI_DATA_WIDTH(C_M_AXI_DATA_WIDTH),
@@ -91,6 +107,16 @@
 		.C_M_AXI_RUSER_WIDTH(C_M_AXI_RUSER_WIDTH),
 		.C_M_AXI_BUSER_WIDTH(C_M_AXI_BUSER_WIDTH)
 	) axi4_rw_test_v1_0_M_AXI_inst (
+		// input from SNN Module
+		.PROCESS_DONE                       (PROCESS_DONE              ),
+		.GOODNESS                           (GOODNESS                  ),
+		.SNN_CLK                            (SNN_CLK                   ),
+		.AER_IN_ACK                         (AER_IN_ACK                ),
+		.AER_IN_REQ                         (AER_IN_REQ                ),
+		.AER_IN_ADDR                        (AER_IN_ADDR               ),
+		.IS_POS                             (IS_POS                    ),
+		.IS_TRAIN                           (IS_TRAIN                  ),
+
 		.INIT_AXI_TXN(m_axi_init_axi_txn),
 		.TXN_DONE(m_axi_txn_done),
 		.ERROR(m_axi_error),
@@ -145,3 +171,4 @@
 	// User logic ends
 
 	endmodule
+	

@@ -6,15 +6,18 @@
 		// Users to add parameters here
 		parameter TIME_TOTAL_STEP = 16,
 		parameter DATA_SIZE = 784,
-		parameter TOTAL_TRAIN_SIZE = 2 * 10, // 训练样本数（含正负样本）
+		parameter TOTAL_TRAIN_SIZE = 2 * 1000, // 训练样本数（含正负样本）
+		parameter TOTAL_TEST_SIZE  = 10* 100, //  测试样本数
+		parameter  C_M_TARGET_SLAVE_WRITE_ADDR  = 32'h01900000, // 写基地址
 		// User parameters ends
 
 		// Do not modify the parameters beyond this line
 		// Base address of targeted slave
-		parameter  C_M_TARGET_SLAVE_BASE_ADDR	= 32'h00010000,
+		parameter  C_M_TARGET_SLAVE_READ_ADDR	= 32'h00010000,
 		// Burst Length. Supports 1, 2, 4, 8, 16, 32, 64, 128, 256 burst lengths
 		//每次突发传输的长度（以数据字为单位）。
-		parameter integer C_M_AXI_BURST_LEN	= 4,
+		parameter integer C_M_AXI_READ_BURST_LEN	= 4,
+		parameter integer C_M_AXI_WRITE_BURST_LEN	= 1,
 		// Thread ID Width
 		parameter integer C_M_AXI_ID_WIDTH	= 1,
 		// Width of Address Bus
@@ -36,8 +39,14 @@
 	(
 		// Users to add ports here
 		// input from SNN Module
-		input wire PROCESS_DONE,
-		input wire 
+		input  wire                         PROCESS_DONE               ,
+		input  wire        [  31: 0]        GOODNESS                   ,
+		input  wire                         SNN_CLK                    ,
+		input  wire                         AER_IN_ACK                 ,
+		output wire                         AER_IN_REQ                 ,
+		output wire        [  11: 0]        AER_IN_ADDR                ,
+    	output reg                          IS_POS                     ,
+		output reg   						IS_TRAIN                   ,
 		// User ports ends
 
 		// Do not modify the ports beyond this line
@@ -176,16 +185,17 @@
 
 	// C_TRANSACTIONS_NUM is the width of the index counter for 
 	// number of write or read transaction.
-	 localparam integer C_TRANSACTIONS_NUM = clogb2(C_M_AXI_BURST_LEN-1);
+	 localparam integer C_TRANSACTIONS_NUM = clogb2(C_M_AXI_READ_BURST_LEN-1);
 
 	// Burst length for transactions, in C_M_AXI_DATA_WIDTHs.
 	// Non-2^n lengths will eventually cause bursts across 4K address boundaries.
 	 localparam integer C_MASTER_LENGTH	= 12;
 	// total number of burst transfers is master length divided by burst length and burst size
-	 localparam integer C_NO_BURSTS_REQ = C_MASTER_LENGTH-clogb2((C_M_AXI_BURST_LEN*C_M_AXI_DATA_WIDTH/8)-1);
+	 localparam integer C_NO_BURSTS_REQ = C_MASTER_LENGTH-clogb2((C_M_AXI_READ_BURST_LEN*C_M_AXI_DATA_WIDTH/8)-1);
 	 localparam integer SIZE_OF_SAMPLE = TIME_TOTAL_STEP * DATA_SIZE;
 	 //注意需要能够被整除，不然可能会出错
-	 localparam integer ONE_SAMPLE_BURST_COUNT = SIZE_OF_SAMPLE / (C_M_AXI_BURST_LEN * C_M_AXI_DATA_WIDTH/8);
+	 localparam integer ONE_SAMPLE_READ_BURST_COUNT = (SIZE_OF_SAMPLE/8) / (C_M_AXI_READ_BURST_LEN * C_M_AXI_DATA_WIDTH/8);
+	 localparam integer ONE_SAMPLE_WRITE_BURST_COUNT = 1;
 	// Example State machine to initialize counter, initialize write transactions, 
 	// initialize read transactions and comparison of read data with the 
 	// written data words.
@@ -222,16 +232,17 @@
 	reg [C_TRANSACTIONS_NUM : 0] 	write_index;
 	//read beat count in a burst
 	reg [C_TRANSACTIONS_NUM : 0] 	read_index;
-	//size of C_M_AXI_BURST_LEN length burst in bytes
-	wire [C_TRANSACTIONS_NUM+2 : 0] 	burst_size_bytes;
-	//The burst counters are used to track the number of burst transfers of C_M_AXI_BURST_LEN burst length needed to transfer 2^C_MASTER_LENGTH bytes of data.
+	//size of C_M_AXI_READ_BURST_LEN length burst in bytes
+	wire [C_TRANSACTIONS_NUM+2 : 0] read_burst_size_bytes;
+	wire [C_TRANSACTIONS_NUM+2 : 0] write_burst_size_bytes;
+	//The burst counters are used to track the number of burst transfers of C_M_AXI_READ_BURST_LEN burst length needed to transfer 2^C_MASTER_LENGTH bytes of data.
 	reg [C_NO_BURSTS_REQ : 0] 	write_burst_counter;
 	reg [C_NO_BURSTS_REQ : 0] 	read_burst_counter;
 	reg  	start_single_burst_write;
 	reg  	start_single_burst_read;
 	reg  	writes_done;
 	reg  	reads_done;
-	reg  	error_reg;
+	reg  	train_finish_reg;
 	reg  	compare_done;
 	reg  	read_mismatch;
 	reg  	burst_write_active;
@@ -246,17 +257,26 @@
 	reg  	init_txn_ff2;
 	reg  	init_txn_edge;
 	wire  	init_txn_pulse;
+
 	//用户自定义信号
-	reg [31:0] current_base_addr;
-	reg [15:0] sample_count;
+    reg                [  15: 0]        sample_count                ;
+    wire                                input_fifo_full             ;
+    wire                                input_fifo_empty            ;
+    wire               [   3: 0]        input_fifo_rd_out           ;
+    wire                                pts_ready                   ;
+    wire                                finish                      ;
+    reg                                 spike_data_vaild            ;
+    reg                                 input_fifo_rd_en            ;
+    reg                                 din_valid                   ;
+    reg                [  31: 0]        GOODNESS_reg                ;
 
 	// I/O Connections assignments
 	//I/O Connections. Write Address (AW)
 	assign M_AXI_AWID	= 'b0;
 	//The AXI address is a concatenation of the target base address + active offset range
-	assign M_AXI_AWADDR	= C_M_TARGET_SLAVE_BASE_ADDR + axi_awaddr;
+	assign M_AXI_AWADDR	= C_M_TARGET_SLAVE_WRITE_ADDR + axi_awaddr;
 	//Burst LENgth is number of transaction beats, minus 1
-	assign M_AXI_AWLEN	= C_M_AXI_BURST_LEN - 1;
+	assign M_AXI_AWLEN	= C_M_AXI_WRITE_BURST_LEN - 1;
 	//Size should be C_M_AXI_DATA_WIDTH, in 2^SIZE bytes, otherwise narrow bursts are used
 	assign M_AXI_AWSIZE	= clogb2((C_M_AXI_DATA_WIDTH/8)-1);
 	//INCR burst type is usually used, except for keyhole bursts
@@ -279,9 +299,9 @@
 	assign M_AXI_BREADY	= axi_bready;
 	//Read Address (AR)
 	assign M_AXI_ARID	= 'b0;
-	assign M_AXI_ARADDR	= C_M_TARGET_SLAVE_BASE_ADDR + axi_araddr;
+	assign M_AXI_ARADDR	= C_M_TARGET_SLAVE_READ_ADDR + axi_araddr;
 	//Burst LENgth is number of transaction beats, minus 1
-	assign M_AXI_ARLEN	= C_M_AXI_BURST_LEN - 1;
+	assign M_AXI_ARLEN	= C_M_AXI_READ_BURST_LEN - 1;
 	//Size should be C_M_AXI_DATA_WIDTH, in 2^n bytes, otherwise narrow bursts are used
 	assign M_AXI_ARSIZE	= clogb2((C_M_AXI_DATA_WIDTH/8)-1);
 	//INCR burst type is usually used, except for keyhole bursts
@@ -298,7 +318,8 @@
 	//Example design I/O
 	assign TXN_DONE	= compare_done;
 	//Burst size in bytes
-	assign burst_size_bytes	= C_M_AXI_BURST_LEN * C_M_AXI_DATA_WIDTH/8;
+	assign read_burst_size_bytes	= C_M_AXI_READ_BURST_LEN * C_M_AXI_DATA_WIDTH/8;
+	assign write_burst_size_bytes	= C_M_AXI_WRITE_BURST_LEN * C_M_AXI_DATA_WIDTH/8;
 	assign init_txn_pulse	= (!init_txn_ff2) && init_txn_ff;
 
 
@@ -363,13 +384,11 @@
 	      end                                                              
 	    else if (M_AXI_AWREADY && axi_awvalid)                             
 	      begin                                                            
-	        axi_awaddr <= axi_awaddr + burst_size_bytes;                   
+	        axi_awaddr <= axi_awaddr + write_burst_size_bytes;                   
 	      end                                                              
 	    else                                                               
 	      axi_awaddr <= axi_awaddr;                                        
 	    end                                                                
-
-
 	//--------------------
 	//Write Data Channel
 	//--------------------
@@ -430,7 +449,7 @@
 	    // count reaches the penultimate count to synchronize                           
 	    // with the last write data when write_index is b1111                           
 	    // else if (&(write_index[C_TRANSACTIONS_NUM-1:1])&& ~write_index[0] && wnext)  
-	    else if (((write_index == C_M_AXI_BURST_LEN-2 && C_M_AXI_BURST_LEN >= 2) && wnext) || (C_M_AXI_BURST_LEN == 1 ))
+	    else if (((write_index == C_M_AXI_WRITE_BURST_LEN-2 && C_M_AXI_WRITE_BURST_LEN >= 2) && wnext) || (C_M_AXI_WRITE_BURST_LEN == 1 ))
 	      begin                                                                         
 	        axi_wlast <= 1'b1;                                                          
 	      end                                                                           
@@ -438,7 +457,7 @@
 	    // accepted by the slave with a valid response                                  
 	    else if (wnext)                                                                 
 	      axi_wlast <= 1'b0;                                                            
-	    else if (axi_wlast && C_M_AXI_BURST_LEN == 1)                                   
+	    else if (axi_wlast && C_M_AXI_WRITE_BURST_LEN == 1)                                   
 	      axi_wlast <= 1'b0;                                                            
 	    else                                                                            
 	      axi_wlast <= axi_wlast;                                                       
@@ -453,7 +472,7 @@
 	      begin                                                                         
 	        write_index <= 0;                                                           
 	      end                                                                           
-	    else if (wnext && (write_index != C_M_AXI_BURST_LEN-1))                         
+	    else if (wnext && (write_index != C_M_AXI_WRITE_BURST_LEN-1))                         
 	      begin                                                                         
 	        write_index <= write_index + 1;                                             
 	      end                                                                           
@@ -471,7 +490,7 @@
 	    //else if (wnext && axi_wlast)                                                  
 	    //  axi_wdata <= 'b0;                                                           
 	    else if (wnext)                                                                 
-	      axi_wdata <= axi_wdata + 1;                                                   
+	      axi_wdata <= GOODNESS_reg;                                                   
 	    else                                                                            
 	      axi_wdata <= axi_wdata;                                                       
 	    end                                                                             
@@ -540,7 +559,7 @@
 	        axi_arvalid <= 1'b0;                                         
 	      end                                                            
 	    // If previously not valid , start next transaction              
-	    else if (~axi_arvalid && start_single_burst_read && !fifo_full)                
+	    else if (~axi_arvalid && start_single_burst_read && !input_fifo_full)                
 	      begin                                                          
 	        axi_arvalid <= 1'b1;                                         
 	      end                                                            
@@ -562,7 +581,7 @@
 	      end                                                            
 	    else if (M_AXI_ARREADY && axi_arvalid)                           
 	      begin                                                          
-	        axi_araddr <= axi_araddr + burst_size_bytes;                 
+	        axi_araddr <= axi_araddr + read_burst_size_bytes;                 
 	      end                                                            
 	    else                                                             
 	      axi_araddr <= axi_araddr;                                      
@@ -585,7 +604,7 @@
 	      begin                                                             
 	        read_index <= 0;                                                
 	      end                                                               
-	    else if (rnext && (read_index != C_M_AXI_BURST_LEN-1))              
+	    else if (rnext && (read_index != C_M_AXI_READ_BURST_LEN-1))              
 	      begin                                                             
 	        read_index <= read_index + 1;                                   
 	      end                                                               
@@ -669,14 +688,14 @@
 	  begin                                                              
 	    if (M_AXI_ARESETN == 0 || init_txn_pulse == 1'b1)                                          
 	      begin                                                          
-	        error_reg <= 1'b0;                                           
+	        train_finish_reg <= 1'b0;                                           
 	      end                                                            
-	    else if (read_mismatch || write_resp_error || read_resp_error)   
+	    else if (sample_count == TOTAL_TRAIN_SIZE)   
 	      begin                                                          
-	        error_reg <= 1'b1;                                           
+	        train_finish_reg <= 1'b1;                                           
 	      end                                                            
 	    else                                                             
-	      error_reg <= error_reg;                                        
+	      train_finish_reg <= train_finish_reg;                                        
 	  end                                                                
 
 
@@ -708,7 +727,7 @@
 	 // against the number of burst transactions the master needs to initiate                                   
 	  always @(posedge M_AXI_ACLK)                                                                              
 	  begin                                                                                                     
-	    if (M_AXI_ARESETN == 0 || init_txn_pulse == 1'b1 )                                                                                 
+	    if (M_AXI_ARESETN == 0 || init_txn_pulse == 1'b1  || mst_exec_state == IDLE)                                                                                 
 	      begin                                                                                                 
 	        write_burst_counter <= 'b0;                                                                         
 	      end                                                                                                   
@@ -730,7 +749,7 @@
 	 // against the number of burst transactions the master needs to initiate                                   
 	  always @(posedge M_AXI_ACLK)                                                                              
 	  begin                                                                                                     
-	    if (M_AXI_ARESETN == 0 || init_txn_pulse == 1'b1)                                                                                 
+	    if (M_AXI_ARESETN == 0 || init_txn_pulse == 1'b1 || mst_exec_state == IDLE)                                                                                 
 	      begin                                                                                                 
 	        read_burst_counter <= 'b0;                                                                          
 	      end                                                                                                   
@@ -775,7 +794,7 @@
 	                                                                                                            
 	    //The writes_done should be associated with a bready response                                           
 	    //else if (M_AXI_BVALID && axi_bready && (write_burst_counter == {(C_NO_BURSTS_REQ-1){1}}) && axi_wlast)
-	    else if (M_AXI_BVALID && (write_burst_counter == ONE_SAMPLE_BURST_COUNT) && axi_bready)  //待修改write_done拉高的条件                        
+	    else if (M_AXI_BVALID && (write_burst_counter == ONE_SAMPLE_WRITE_BURST_COUNT) && axi_bready)  //待修改write_done拉高的条件                        
 	      writes_done <= 1'b1;                                                                                  
 	    else                                                                                                    
 	      writes_done <= 1'b0;                                                                           
@@ -810,7 +829,7 @@
 	                                                                                                            
 	    //The reads_done should be associated with a rready response                                            
 	    //else if (M_AXI_BVALID && axi_bready && (write_burst_counter == {(C_NO_BURSTS_REQ-1){1}}) && axi_wlast)
-	    else if (M_AXI_RVALID && axi_rready && (read_index == C_M_AXI_BURST_LEN-1) && (read_burst_counter == ONE_SAMPLE_BURST_COUNT))
+	    else if (M_AXI_RVALID && axi_rready && (read_index == C_M_AXI_READ_BURST_LEN-1) && (read_burst_counter == ONE_SAMPLE_READ_BURST_COUNT))
 	      reads_done <= 1'b1;                                                                                   
 	    else                                                                                                    
 	      reads_done <= 1'b0;                                                                             
@@ -853,7 +872,7 @@
 			    mst_exec_state_next = NEXT_SAMPLE;
 			end
 			NEXT_SAMPLE : begin
-				mst_exec_state_next = (sample_count < TOTAL_TRAIN_SIZE)? IDLE : INIT;
+				mst_exec_state_next = (sample_count < (TOTAL_TRAIN_SIZE + TOTAL_TEST_SIZE))? IDLE : INIT;
 			end
 		endcase
 	end
@@ -869,7 +888,9 @@
 	        compare_done      <= 1'b0;                                                                          
 	        ERROR <= 1'b0;
 			sample_count <= 'd0;
-			current_base_addr <= C_M_TARGET_SLAVE_BASE_ADDR; // 初始化基地址 
+			IS_POS <= 1'b1;
+			GOODNESS_reg <= 'd0;
+			IS_TRAIN <= 1'b1;
 		end 
 		else
 			case(mst_exec_state)					//根据当前状态进行输出
@@ -877,8 +898,10 @@
 					ERROR <= 1'b0;
 	                compare_done <= 1'b0;
 					sample_count <= 'd0;
-					current_base_addr <= C_M_TARGET_SLAVE_BASE_ADDR; // 初始化基地址
+					IS_TRAIN <= 1'b1;
 				end    
+				IDLE : begin
+				end
 				READ_DATA : begin
 				// This state is responsible to issue start_single_read pulse to                                
 				// initiate a read transaction. Read transactions will be                                       
@@ -896,54 +919,51 @@
 					end       
 				end
 				PROCESS_DATA : begin
-				end            
-				// This state is responsible to issue start_single_write pulse to                               
-	            // initiate a write transaction. Write transactions will be                                     
-	            // issued until burst_write_active signal is asserted.                                          
-	            // write controller                                                                                                                                                                                                                                                                                                                                               
+					if (PROCESS_DONE)
+						GOODNESS_reg <= GOODNESS;
+					else
+						GOODNESS_reg <= GOODNESS_reg;
+				end  
 	          	WRITE_DATA : begin
 					if(!writes_done) begin
 						if (~axi_awvalid && ~start_single_burst_write && ~burst_write_active)                       
 	                  begin                                                                                     
-	                    start_single_burst_write <= 1'b1;
-						current_base_addr <= current_base_addr;                                                       
+	                    start_single_burst_write <= 1'b1;                                                    
 	                  end                                                                                       
 	                else                                                                                        
 	                  begin                                                                                     
-	                    start_single_burst_write <= 1'b0; //Negate to generate a pulse
-						current_base_addr <= current_base_addr + (SIZE_OF_SAMPLE / 8); // 更新基地址                          
+	                    start_single_burst_write <= 1'b0; //Negate to generate a pulse                     
 	                  end  
 					end
 				end                                                                                                                                                                                                                                                                                                          
-	          DONE : begin                                                                                           
-	              ERROR <= error_reg;                                                             
+	          DONE : begin                                                                                                                                                        
 	              compare_done <= 1'b1; 
 				  sample_count <= sample_count + 'd1;                                                                        
 	            end
 			  NEXT_SAMPLE: begin
-
+			  		ERROR <= train_finish_reg;
+			  		IS_POS <= ~IS_POS;
+					IS_TRAIN <= (sample_count < TOTAL_TRAIN_SIZE)? 1'b1 : 1'b0;
 			  end                                                                                             
 	          default :                                                                                         
 	            begin                                                                                                                                                       
 	            end                                                                                             
 	        endcase           
 	end
-	wire input_fifo_full;
-	wire input_fifo_empty;
-	wire input_fifo_rd_en;
-	wire[3:0] input_fifo_rd_out;
-	wire spike;
-	reg spike_data_vaild; 
-	reg[3:0] spike_data_shift;
-	reg[2:0] shift_cnt; 
-	reg[9:0] neuron_index;
-	assign input_fifo_rd_en = (shift_cnt == 'd3) & !input_fifo_empty;
 
-	input wire SNN_CLK;
-	input wire SNN_ACK;
-	output reg SNN_REQ;
-	output reg[11:0] AERIN_ADDR;
 
+	// fifo_rd_en读使能信号
+	// 读使能信号，当fifo不为空，pts_ready有效，读使能信号为0，spike_data_vaild为0，finish为0时，读使能信号为1
+	// 读出fifo数据直至排空
+	always @(posedge SNN_CLK or negedge M_AXI_ARESETN) begin                                        
+		if(!M_AXI_ARESETN)                               
+			input_fifo_rd_en <= 0;						
+		else if(!input_fifo_empty && pts_ready && !input_fifo_rd_en && !spike_data_vaild)                                
+			input_fifo_rd_en <= 1;					
+		else                      
+			input_fifo_rd_en <= 0;               
+	end
+	// spike_data_vaild有效信号
 	always @(posedge SNN_CLK or negedge M_AXI_ARESETN) begin                                        
 		if(!M_AXI_ARESETN)                               
 			spike_data_vaild <= 0;						
@@ -951,27 +971,9 @@
 			spike_data_vaild <= 1;					
 		else                      
 			spike_data_vaild <= 0;               
-	end                                          
-	always @(posedge SNN_CLK or negedge M_AXI_ARESETN) begin  
-		if(!M_AXI_ARESETN)
-			spike_data_shift <= 4'b0;
-			shift_cnt <= 'd0;
-			neuron_index <= 'd0
-		else if(spike_data_vaild) //将值寄存住
-			spike_data_shift <=  input_fifo_rd_out;
-			shift_cnt <= 'd0;
-			neuron_index <= neuron_index + 1;
-		else
-			spike_data_shift <= (!SNN_REQ && SNN_ACK)? {spike_data_shift[2:0] , spike_data_shift[3]} : spike_data_shift; //左移
-			shift_cnt <= (!SNN_REQ && SNN_ACK)? shift_cnt + 1: shift_cnt;
-			neuron_index <= (!SNN_REQ && SNN_ACK)? neuron_index + 1 : neuron_index;
 	end
 
-	assign spike = shift[3];//不断输出
-	assign AERIN_ADDR = (spike)? {2'b00, neuron_index} : AERIN_ADDR;
-
-
-    input_fifo                          input_fifo_0(          
+    axi_input_fifo                      axi_input_fifo_0(          
     .rst                                (!M_AXI_ARESETN            ),// input wire rst
     .wr_clk                             (M_AXI_ACLK                ),// input wire wr_clk
     .rd_clk                             (SNN_CLK                   ),// input wire rd_clk
@@ -985,6 +987,21 @@
     .rd_rst_busy                        (                          ) // output wire rd_rst_busy
     );
 
-
+    parallel_to_serial#(
+    .DATA_WIDTH                         (4                         ),
+    .CNT_MAX                            (783                       ),
+    .STEP                               (16                        ) 
+    )
+    u_parallel_to_serial(
+    .CLK                                (SNN_CLK                   ),
+    .rst_n                              (M_AXI_ARESETN             ),
+    .din_parallel                       (input_fifo_rd_out         ),
+    .din_valid                          (spike_data_vaild          ),
+    .AER_IN_ACK                         (AER_IN_ACK                ),
+    .pts_ready                          (pts_ready                 ),
+    .AER_IN_ADDR                        (AER_IN_ADDR               ),
+    .AER_IN_REQ                         (AER_IN_REQ                ),
+    .finish                             (finish                    ) 
+    );
 
 	endmodule
