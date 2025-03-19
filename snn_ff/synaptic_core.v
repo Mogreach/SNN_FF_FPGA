@@ -30,7 +30,7 @@ module synaptic_core #(
     input wire [6:0] POST_NEUR_S_CNT_2,
     input wire [6:0] POST_NEUR_S_CNT_3,
     // Outputs ------------------------------------------------
-    output wire [   31:0] synarray_rdata
+    output wire [   31:0] SYNARRAY_RDATA
 );
 
     // Internal regs and wires definitions
@@ -66,7 +66,7 @@ module synaptic_core #(
         .POST_SPIKE_CNT(POST_NEUR_S_CNT[i]),
         .PRE_SPIKE_CNT(PRE_NEUR_S_CNT), 
         // From SRAM
-        .WSYN_CURR(synarray_rdata[(i*8)+7:(i*8)]),
+        .WSYN_CURR(SYNARRAY_RDATA[(i*8)+7:(i*8)]),
         // Output
         .WSYN_NEW(synarray_wdata_int[(i*8)+7:(i*8)])
     );
@@ -75,8 +75,9 @@ module synaptic_core #(
     // Updated or configured weights to be written to the synaptic memory
     generate
         for (i=0; i<4; i=i+1) begin
-            assign synarray_wdata[(i*8)+7:(i*8)] = SPI_GATE_ACTIVITY_sync? (i==post_neuron_byte_addr && CTRL_SYNA_WR_EVENT)? CTRL_SYNA_PROG_DATA : synarray_rdata[(i*8)+7:(i*8)]
-                                                 : synarray_wdata_int[(i*8)+7:(i*8)];
+            // assign synarray_wdata[(i*8)+7:(i*8)] = SPI_GATE_ACTIVITY_sync? (i==post_neuron_byte_addr && CTRL_SYNA_WR_EVENT)? CTRL_SYNA_PROG_DATA : synarray_rdata[(i*8)+7:(i*8)]
+            //                                      : synarray_wdata_int[(i*8)+7:(i*8)];
+            assign synarray_wdata[(i*8)+7:(i*8)] = synarray_wdata_int[(i*8)+7:(i*8)];
         end
     endgenerate
     
@@ -88,7 +89,7 @@ module synaptic_core #(
     .wea   (CTRL_SYNARRAY_WE       ),  // input 写使能信号
     .addra (synarray_addr    ), 
     .dina  (synarray_wdata  ),
-    .douta (synarray_rdata  )  
+    .douta (SYNARRAY_RDATA  )  
 );
 endmodule
 

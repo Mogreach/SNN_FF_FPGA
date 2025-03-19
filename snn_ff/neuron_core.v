@@ -39,7 +39,7 @@ module neuron_core #(
     output wire [6:0] POST_NEUR_S_CNT_2,
     output wire [6:0] POST_NEUR_S_CNT_3
 );
-    localparam  neuron_thresold= 12'hAAA;
+    localparam  neuron_thresold= 12'b0_00001_100000; //神经元阈值S5.6: 1.5
     // Internal regs and wires definitions
     wire [7:0] pre_neuron_sram_out;
     wire [7:0] pre_neuron_sram_in;
@@ -96,14 +96,19 @@ module neuron_core #(
         for (i=0; i<4; i=i+1) begin
             // 神经元状态信息更新：SPI 配置？（SPI指定地址？掩码后的编入数据：保持）：膜电位更新
             // 突触后神经元发放脉冲更新
-            assign post_neuron_sram_in[30+(i*32):24+(i*32)] = SPI_GATE_ACTIVITY_sync ? CTRL_POST_NEUR_PROG_DATA[30:24] : IF_neuron_next_spike_cnt[i];
+            // assign post_neuron_sram_in[30+(i*32):24+(i*32)] = SPI_GATE_ACTIVITY_sync ? CTRL_POST_NEUR_PROG_DATA[30:24] : IF_neuron_next_spike_cnt[i];
+            assign post_neuron_sram_in[30+(i*32):24+(i*32)] =  IF_neuron_next_spike_cnt[i];
             // 突触后神经元阈值更新
-            assign post_neuron_sram_in[23+(i*32):12+(i*32)] = SPI_GATE_ACTIVITY_sync ? CTRL_POST_NEUR_PROG_DATA[23:12] : neuron_thresold;
+            // assign post_neuron_sram_in[23+(i*32):12+(i*32)] = SPI_GATE_ACTIVITY_sync ? CTRL_POST_NEUR_PROG_DATA[23:12] : neuron_thresold;
+            assign post_neuron_sram_in[23+(i*32):12+(i*32)] =  neuron_thresold;
             // 突触后神经元膜电位更新
-            assign post_neuron_sram_in[11+(i*32): 0+(i*32)] = SPI_GATE_ACTIVITY_sync ? CTRL_POST_NEUR_PROG_DATA[11:0]: IF_neuron_next_mem[i]; 
+            // assign post_neuron_sram_in[11+(i*32): 0+(i*32)] = SPI_GATE_ACTIVITY_sync ? CTRL_POST_NEUR_PROG_DATA[11:0]: IF_neuron_next_mem[i]; 
+            assign post_neuron_sram_in[11+(i*32): 0+(i*32)] = IF_neuron_next_mem[i]; 
             // 突触后神经元使能信号更新                 
             // assign post_neuron_sram_in[31+(i*32)] = SPI_GATE_ACTIVITY_sync ? CTRL_POST_NEUR_PROG_DATA[31] : post_neuron_sram_out[31+(i*32)];                            
-            assign post_neuron_sram_in[31+(i*32)] = SPI_GATE_ACTIVITY_sync ? CTRL_POST_NEUR_PROG_DATA[31] : 1'b1;
+            // assign post_neuron_sram_in[31+(i*32)] = SPI_GATE_ACTIVITY_sync ? CTRL_POST_NEUR_PROG_DATA[31] : 1'b1;
+            assign post_neuron_sram_in[31+(i*32)] = 1'b1;
+
             if_neuron if_neuron_gen( 
             .post_spike_cnt(post_neuron_sram_out [30+(i*32):24+(i*32)]),          // 突触后神经元发放脉冲数量 from SRAM
             .post_spike_cnt_next(IF_neuron_next_spike_cnt[i]),          // 突触后神经元发放脉冲数量 to SRAM
@@ -116,8 +121,8 @@ module neuron_core #(
             .time_ref_event(CTRL_TREF_EVENT),                // time reference event trigger
             .spike_out(IF_neuron_event_out[i])                // neuron spike event output  
             );
-        assign NEUR_EVENT_OUT[i] = post_neuron_sram_out[31+(i*32)] ? ((CTRL_POST_NEUR_CS && CTRL_POST_NEUR_WE) ? IF_neuron_event_out[i] : 1'b0) : 1'b0;
-        assign POST_NEUR_S_CNT[i] = post_neuron_sram_out [30+(i*32):24+(i*32)];
+            assign NEUR_EVENT_OUT[i] = post_neuron_sram_out[31+(i*32)] ? ((CTRL_POST_NEUR_CS && CTRL_POST_NEUR_WE) ? IF_neuron_event_out[i] : 1'b0) : 1'b0;
+            assign POST_NEUR_S_CNT[i] = post_neuron_sram_out [30+(i*32):24+(i*32)];
         end
     endgenerate
     // 突触前神经元SRAM 读优先时序

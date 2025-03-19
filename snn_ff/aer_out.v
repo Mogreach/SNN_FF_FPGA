@@ -74,7 +74,7 @@ module aer_out #(
     reg                                 fifo_rd_en_int              ;
     reg                                 goodness_en_d0              ;
     reg                                 goodness_en_d1              ;
-    reg                [   2: 0]        ctrl_tref_finish_delay      ;
+    reg                [   5: 0]        ctrl_tref_finish_delay      ;
     // 路径太长，违反时序，增加一级寄存器
     reg                                 fifo_wr_en_d0               ;
     reg                [  47: 0]        aer_out_fifo_din_d0         ;
@@ -88,6 +88,7 @@ module aer_out #(
     wire                                fifo_empty                  ;
     wire                                fifo_full                   ;
     wire                                goodness_en                 ;
+    wire                                ctrl_tref_finish_delay_posedge  ;
     
     
     
@@ -99,10 +100,10 @@ module aer_out #(
     wire               [  10: 0]        post_neur_goodness_add2     ;
     wire               [  11: 0]        post_neur_goodness_sum      ;
 
-    assign                              rst_activity                = RST || SPI_GATE_ACTIVITY_sync;
+    assign                              rst_activity                = RST;
     // AER空闲，fifo不空，且此时fifo_out不是无效事件
     assign                              fifo_rd_en                  = CTRL_AEROUT_POP_NEUR & !AEROUT_REQ & !AEROUT_ACK_sync & !fifo_empty & !aer_out_start;
-    assign                              fifo_wr_en                  = CTRL_AEROUT_PUSH_NEUR & !fifo_full & (|NEUR_EVENT_OUT);
+    assign                              fifo_wr_en                  = CTRL_AEROUT_PUSH_NEUR & !fifo_full;
 
     assign                              AEROUT_ACK_sync_negedge     = !AEROUT_ACK_sync & AEROUT_ACK_sync_del;
     assign                              aer_out_addr_last_negedge   = !aer_out_addr_last & aer_out_addr_last_int;
@@ -114,8 +115,9 @@ module aer_out #(
     assign                              post_neur_cnt[1]            = POST_NEUR_S_CNT_1;
     assign                              post_neur_cnt[2]            = POST_NEUR_S_CNT_2;
     assign                              post_neur_cnt[3]            = POST_NEUR_S_CNT_3;
-
-    assign                              ONE_SAMPLE_FINISH           = ctrl_tref_finish_delay[2];
+    assign                              ctrl_tref_finish_delay_posedge= !ctrl_tref_finish_delay[5] && ctrl_tref_finish_delay[4];
+    assign                              ONE_SAMPLE_FINISH           = ctrl_tref_finish_delay_posedge;
+    assign                              goodness_en                 = CTRL_POST_NEUR_WE && CTRL_TREF_EVENT;
 
     genvar i;
     generate
@@ -149,7 +151,7 @@ module aer_out #(
 
     always @(posedge CLK or posedge rst_activity)           
         begin                                        
-            if(rst_activity || ctrl_tref_finish_delay[2])                               
+            if(rst_activity || ctrl_tref_finish_delay_posedge)                               
                 GOODNESS <= 'd0;                         
             else if(goodness_en_d1)                                
                 GOODNESS <= GOODNESS + post_neur_goodness_sum;              
@@ -168,7 +170,9 @@ module aer_out #(
             fifo_rd_en_int <= 1'b0;
             goodness_en_d0 <= 1'b0;
             goodness_en_d1 <= 1'b0;
-            ctrl_tref_finish_delay <= 3'b0;
+            ctrl_tref_finish_delay <= 6'b0;
+            // aer_out_fifo_din_d0 <= 48'b0;
+            // fifo_wr_en_d0 <= 1'b0;
         end
         else begin
             AEROUT_ACK_sync_int <= AEROUT_ACK;
@@ -178,7 +182,9 @@ module aer_out #(
             fifo_rd_en_int <= fifo_rd_en;
             goodness_en_d0 <= goodness_en;
             goodness_en_d1 <= goodness_en_d0;
-            ctrl_tref_finish_delay <= {ctrl_tref_finish_delay[1:0],CTRL_AEROUT_TREF_FINISH};
+            ctrl_tref_finish_delay <= {ctrl_tref_finish_delay[4:0],CTRL_AEROUT_TREF_FINISH};
+            // aer_out_fifo_din_d0 <= aer_out_fifo_din;
+            // fifo_wr_en_d0 <= fifo_wr_en;
         end
     end
 

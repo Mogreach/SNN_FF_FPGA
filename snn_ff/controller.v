@@ -65,9 +65,6 @@ module controller #(
     output reg            CTRL_SYNARRAY_CS,
     output reg            CTRL_SYNARRAY_WE,
 
-    output reg            CTRL_NEURMEM_CS, //由CTRL_POST/PRE_取代
-    output reg            CTRL_NEURMEM_WE,
-
     output reg CTRL_SYNA_WR_EVENT,
     output reg CTRL_SYNA_RD_EVENT,
     output reg[7:0] CTRL_SYNA_PROG_DATA,
@@ -102,7 +99,9 @@ module controller #(
     output  reg            CTRL_AEROUT_POP_NEUR,
     output  reg            CTRL_AEROUT_PUSH_NEUR,
     output  reg            CTRL_AEROUT_POP_TSTEP,
-    output  wire           CTRL_AEROUT_TREF_FINISH
+    output  wire           CTRL_AEROUT_TREF_FINISH,
+    //debug
+    output wire    [  3:0]                     ctrl_state                  
 );
 
 
@@ -162,6 +161,7 @@ module controller #(
     assign CTRL_TSTEP_EVENT_negedge = !CTRL_TSTEP_EVENT & CTRL_TSTEP_EVENT_int;
     assign tref_finish = (CTRL_TREF_EVENT && (pre_neur_cnt == 'd784))? 1'b1 : 1'b0; // 在推理更新状态，当突触前神经元计数到784时拉高，跳转至wait
 	assign CTRL_AEROUT_TREF_FINISH = tref_finish;
+    assign ctrl_state = state;
     //----------------------------------------------------------------------------------
 	//	SYNC BARRIERS FROM AER AND FROM SPI
 	//----------------------------------------------------------------------------------
@@ -206,27 +206,27 @@ module controller #(
 	// Next state logic
 	always @(*)
 		case(state)
-			WAIT 		:	if      (AEROUT_CTRL_BUSY)                                                          nextstate = WAIT;
-                            else if (SPI_GATE_ACTIVITY_sync)
-                            // AER输入事件类型
-                                if      (CTRL_PROG_EVENT_sync     && (CTRL_OP_CODE == 2'b01))                   nextstate = W_NEUR;
-                                else if (CTRL_READBACK_EVENT_sync && (CTRL_OP_CODE == 2'b01))                   nextstate = R_NEUR;
-                                else if (CTRL_PROG_EVENT_sync     && (CTRL_OP_CODE == 2'b10))                   nextstate = W_SYN;
-                                else if (CTRL_READBACK_EVENT_sync && (CTRL_OP_CODE == 2'b10))                   nextstate = R_SYN;
-                                else                                                                            nextstate = WAIT;
-                            else
-                                if (SCHED_FULL)                                                                 
-                                    //SCHED_DATA_OUT[11:10] == 2'b01
-                                    if( &SCHED_DATA_OUT[11:10])                                                 nextstate = TSTEP_ACT;
-                                    else                                                                        nextstate = NEUR_ACT;
-                                else if (AERIN_REQ_sync)
-                                    if (neuron_event || tstep_event)                                            nextstate = PUSH;
-                                    else                                                                        nextstate = WAIT;
-                                else if (~SCHED_EMPTY)                                                          
-                                    if( &SCHED_DATA_OUT[11:10])                                                 nextstate = TSTEP_ACT;
-                                    else                                                                        nextstate = NEUR_ACT;
-                                else                                                                            nextstate = WAIT;
-			W_NEUR    	:   if      (ctrl_cnt == 32'd1 )                                                        nextstate = WAIT_SPIDN;
+			WAIT 		:	
+                                // if (SPI_GATE_ACTIVITY_sync)
+            //                 // AER输入事件类型
+            //                     if      (CTRL_PROG_EVENT_sync     && (CTRL_OP_CODE == 2'b01))                   nextstate = W_NEUR;
+            //                     else if (CTRL_READBACK_EVENT_sync && (CTRL_OP_CODE == 2'b01))                   nextstate = R_NEUR;
+            //                     else if (CTRL_PROG_EVENT_sync     && (CTRL_OP_CODE == 2'b10))                   nextstate = W_SYN;
+            //                     else if (CTRL_READBACK_EVENT_sync && (CTRL_OP_CODE == 2'b10))                   nextstate = R_SYN;
+            //                     else                                                                            nextstate = WAIT;
+                            // else
+                            if (SCHED_FULL)                                                                 
+                                //SCHED_DATA_OUT[11:10] == 2'b01
+                                if( |SCHED_DATA_OUT[11:10])                                                 nextstate = TSTEP_ACT;
+                                else                                                                        nextstate = NEUR_ACT;
+                            else if (AERIN_REQ_sync)
+                                if (neuron_event || tstep_event)                                            nextstate = PUSH;
+                                else                                                                        nextstate = WAIT;
+                            else if (~SCHED_EMPTY)                                                          
+                                if( |SCHED_DATA_OUT[11:10])                                                 nextstate = TSTEP_ACT;
+                                else                                                                        nextstate = NEUR_ACT;
+                            else                                                                            nextstate = WAIT;
+			W_NEUR    	:   if      (ctrl_cnt == 32'd1 )                                                    nextstate = WAIT_SPIDN;
 							else					                                                            nextstate = W_NEUR;
 			R_NEUR    	:                                                                                       nextstate = WAIT_SPIDN;
 			W_SYN    	:   if      (ctrl_cnt == 32'd1 )                                                        nextstate = WAIT_SPIDN;
@@ -237,11 +237,11 @@ module controller #(
             PUSH        :                                                                                       nextstate = WAIT_REQDN;
 			//确保CTRL_SCHED_POP_N拉低一周期
                                                  //{SPI_MAX_NEUR,1'b1}
-            NEUR_ACT    :   if      (ctrl_cnt[8:0] == {8'd60,1'b1})                                             nextstate = POP_NEUR;
+            NEUR_ACT    :   if      (ctrl_cnt[8:0] == {8'd63,1'b1})                                             nextstate = POP_NEUR;
 							else					                                                            nextstate = NEUR_ACT;
             POP_NEUR    :   if      (~CTRL_SCHED_POP_N)                                                         nextstate = WAIT;
 							else					                                                            nextstate = POP_NEUR;                
-			TSTEP_ACT   :   if      (ctrl_cnt[8:0] == {8'd60,1'b1})                                             nextstate = POP_NEUR_OUT;
+			TSTEP_ACT   :   if      (ctrl_cnt[8:0] == {8'd63,1'b1})                                             nextstate = POP_NEUR_OUT;
 							else					                                                            nextstate = TSTEP_ACT;
             POP_NEUR_OUT:   if      (~CTRL_SCHED_POP_N)                                                         nextstate =POP_TSTEP;
 							else					                                                            nextstate = POP_NEUR_OUT;
@@ -466,7 +466,7 @@ module controller #(
             // SPI控制编入数据
             CTRL_POST_NEUR_PROG_DATA = 32'b0;
             // 事件类型
-            CTRL_NEUR_EVENT     = 1'b1;            
+            CTRL_NEUR_EVENT     = 1'b0;            
             CTRL_TSTEP_EVENT    = 1'b0;
             // To scheduler
             CTRL_SCHED_VIRTS    = 2'b0;
@@ -508,9 +508,9 @@ module controller #(
             end
             // 当历遍突触前最后一个神经元时，每两个周期更新突触后脉冲计数
             if ((ctrl_cnt[0] == 1'b0) && (pre_neur_cnt == 'd783)) begin
-                CTRL_POST_NEUR_WE   = 1'b0;
+                CTRL_POST_NEUR_WE   = 1'b1;
             end else begin
-                CTRL_POST_NEUR_WE   = 1'b1;   
+                CTRL_POST_NEUR_WE   = 1'b0;
             end
 
 
@@ -561,7 +561,6 @@ module controller #(
 
         NEUR_ACT : begin
             // To synaptic_core
-            CTRL_SYNARRAY_ADDR  = 15'b0;
             // sram关键控制信号
             CTRL_SYNA_WR_EVENT  = 1'b0;
             CTRL_SYNA_RD_EVENT  = 1'b0;
@@ -592,6 +591,7 @@ module controller #(
             // 控制器神经元地址
             CTRL_POST_NEURON_ADDRESS = post_neur_cnt;
             CTRL_PRE_NEURON_ADDRESS = SCHED_DATA_OUT[M-1:0];
+            CTRL_SYNARRAY_ADDR  = {CTRL_PRE_NEURON_ADDRESS,CTRL_POST_NEURON_ADDRESS[7:2]};
             CTRL_SYNARRAY_CS    = 1'b1;
             CTRL_SYNARRAY_WE    = 1'b0;
             CTRL_NEUR_EVENT     = 1'b1;
@@ -662,8 +662,6 @@ module controller #(
             CTRL_SYNARRAY_CS    = 1'b0;
             CTRL_SYNARRAY_WE    = 1'b0;
             // sram关键控制信号
-            CTRL_PRE_NEUR_CS    = 1'b0;
-            CTRL_PRE_NEUR_WE    = 1'b0;
             CTRL_POST_NEUR_CS   = 1'b0;
             CTRL_POST_NEUR_WE   = 1'b0;
             CTRL_SYNA_WR_EVENT  = 1'b0;

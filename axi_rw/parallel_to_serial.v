@@ -19,7 +19,8 @@
 // Version:                V1.0
 // TEXT NAME:              parallel_to_serial.v
 // PATH:                   D:\BaiduSyncdisk\SNN_FFSTBP\rtl\axi_rw\parallel_to_serial.v
-// Descriptions:           
+// Descriptions:   4位并行转串行模块
+// 输入4位并行数据，输出1位串行数据，从低位开始输出（小端）        
 //                         
 //----------------------------------------------------------------------------------------
 //****************************************************************************************//
@@ -45,6 +46,8 @@ module parallel_to_serial #(
     wire                                AER_IN_REQ_negedge          ;
     wire                                tstep_valid_posedge         ;
     wire                                tstep_valid_negedge         ;
+    wire                                tstep_start                 ;
+    wire                                tstep_end                   ;
 
     reg                                 AER_IN_REQ_int              ;
     reg                                 tstep_valid                 ;
@@ -56,10 +59,12 @@ module parallel_to_serial #(
     assign                              AER_IN_REQ_negedge          = AER_IN_REQ_int && !AER_IN_REQ;
     assign                              tstep_valid_posedge         = tstep_valid && !tstep_valid_int;
     assign                              tstep_valid_negedge         = !tstep_valid && tstep_valid_int;
-    assign                              dout_serial                 = din_parallel_tmp[DATA_WIDTH-1];
+    // assign                              dout_serial                 = din_parallel_tmp[0];
+    assign                              dout_serial                 = din_parallel_tmp[3];
     assign                              shift_en                    = !pts_ready && (AER_IN_REQ_negedge || !dout_serial) && !tstep_valid;
 	assign 								finish                      = (tstep_cnt == 0) && tstep_valid_negedge;
-
+    assign                              tstep_start                 = (cnt[9:0] == CNT_MAX) && shift_en;
+    assign                              tstep_end                   = (tstep_valid && AER_IN_REQ_negedge);
     always @(posedge CLK or negedge rst_n) begin
         if(!rst_n) begin
             AER_IN_REQ_int <= 1'b0;
@@ -92,10 +97,10 @@ module parallel_to_serial #(
         if(!rst_n)begin
             tstep_valid <= 1'b0;
         end
-        else if(tstep_valid && AER_IN_REQ_negedge)begin
+        else if(tstep_end)begin
             tstep_valid <= 1'b0;
         end
-        else if((cnt[9:0] == CNT_MAX) && shift_en)begin
+        else if(tstep_start)begin
             tstep_valid <= 1'b1;
         end
         else begin
@@ -105,7 +110,7 @@ module parallel_to_serial #(
 
 	// pts_ready信号
     always @(posedge CLK or negedge rst_n) begin
-        if(!rst_n || ((cnt[1:0] == 2'b11) && shift_en) || (tstep_valid && AER_IN_REQ_negedge))
+        if(!rst_n || ((cnt[1:0] == 2'b11) && shift_en && !tstep_start) || tstep_end)
             pts_ready <= 1'b1;
         else if(pts_ready && din_valid)
             pts_ready <= 1'b0;
@@ -122,7 +127,8 @@ module parallel_to_serial #(
             din_parallel_tmp <= din_parallel;
         end
         else if( !pts_ready && shift_en)begin
-            din_parallel_tmp <= din_parallel_tmp << 1;
+            // din_parallel_tmp <= din_parallel_tmp >> 1;
+            din_parallel_tmp <= din_parallel_tmp << 1;   
         end
         else begin
             din_parallel_tmp <= din_parallel_tmp;
@@ -134,7 +140,7 @@ module parallel_to_serial #(
         if (!rst_n || AER_IN_ACK) begin
             AER_IN_REQ <= 1'b0;
         end
-        else if(!AER_IN_REQ && !AER_IN_ACK && !pts_ready && (dout_serial || tstep_valid_posedge)) begin
+        else if(!AER_IN_REQ && !AER_IN_ACK && !pts_ready && (dout_serial || tstep_valid)) begin
               AER_IN_REQ <= 1'b1;
         end
         else
@@ -147,7 +153,7 @@ module parallel_to_serial #(
         begin
             if(!rst_n)
                 AER_IN_ADDR <= 12'b0;
-            else if(tstep_valid_posedge)
+            else if(tstep_valid_posedge || tstep_valid)
                 AER_IN_ADDR <= {2'b01, cnt[9:0]};
             else
                 AER_IN_ADDR <= {2'b00, cnt[9:0]};

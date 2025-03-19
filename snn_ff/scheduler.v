@@ -63,7 +63,8 @@
         .data_out(data_out_main)
     );
 
-    assign push_req_n = ~((~SPI_OPEN_LOOP_sync) | CTRL_SCHED_EVENT_IN);
+    // assign push_req_n = ~((~SPI_OPEN_LOOP_sync) | CTRL_SCHED_EVENT_IN);
+    assign push_req_n = ~(CTRL_SCHED_EVENT_IN);
 
 
     // Output definition

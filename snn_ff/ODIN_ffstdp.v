@@ -44,13 +44,14 @@ module ODIN_ffstdp #(
     output wire                         AERIN_ACK                  ,
 
 	// Output 10-bit AER -------------------------------
-    output wire        [ M-1: 0]        AEROUT_ADDR                ,
+    output wire        [ M+1: 0]        AEROUT_ADDR                ,
     output wire                         AEROUT_REQ                 ,
     input  wire                         AEROUT_ACK                 ,
     output wire        [31:0]           GOODNESS                   ,
     output wire                         ONE_SAMPLE_FINISH          ,
     // Debug ------------------------------------------
-    output wire                         SCHED_FULL                  
+    output wire                         SCHED_FULL                 ,
+    output wire      [  3:0]                   ctrl_state
 );
 
     //----------------------------------------------------------------------------------
@@ -75,22 +76,17 @@ module ODIN_ffstdp #(
     // Controller
     wire                                CTRL_READBACK_EVENT         ;
     wire                                CTRL_PROG_EVENT             ;
-    wire               [2*M-1: 0]        CTRL_SPI_ADDR               ;
+    wire               [2*M-1: 0]       CTRL_SPI_ADDR               ;
     wire               [   1: 0]        CTRL_OP_CODE                ;
-    wire               [2*M-1: 0]        CTRL_PROG_DATA              ;
+    wire               [2*M-1: 0]       CTRL_PROG_DATA              ;
     wire               [   7: 0]        CTRL_PRE_EN                 ;
-    wire                                CTRL_NEURMEM_WE             ;
     wire               [  15: 0]        CTRL_SYNARRAY_ADDR          ;// 控制信号: 突触数组地址
     wire                                CTRL_SYNARRAY_CS            ;// 控制信号: 突触数组选择
-    wire                                CTRL_SYNARRAY_WE            ;// 控制信号: 突触数组写使能
-    wire               [ M-1: 0]        CTRL_NEURMEM_ADDR           ;
-    wire                                CTRL_NEURMEM_CS             ;
-    wire                                CTRL_NEUR_TREF              ;
-    wire               [   3: 0]        CTRL_NEUR_VIRTS             ;
+    wire                                CTRL_SYNARRAY_WE            ;// 控制信号: 突触数组写使能    
     wire                                CTRL_SCHED_POP_N            ;
     wire               [ M-1: 0]        CTRL_SCHED_ADDR             ;
     wire                                CTRL_SCHED_EVENT_IN         ;
-    wire               [   3: 0]        CTRL_SCHED_VIRTS            ;
+    wire               [   1: 0]        CTRL_SCHED_VIRTS            ;
     wire                                CTRL_AEROUT_POP_NEUR        ;
     wire                                CTRL_SYNA_WR_EVENT          ;// 突触写事件
     wire                                CTRL_SYNA_RD_EVENT          ;// 突触读事件
@@ -112,8 +108,7 @@ module ODIN_ffstdp #(
     wire                                CTRL_AEROUT_PUSH_NEUR       ;
     wire                                CTRL_AEROUT_TREF_FINISH     ;
     // Synaptic core
-    wire               [  31: 0]        SYNARRAY_RDATA              ;
-    wire               [  31: 0]        synarray_rdata              ;// 突触数组读数据
+    wire               [  31: 0]        SYNARRAY_RDATA              ;// 突触数组读数据
     
     // Scheduler
     wire                                SCHED_EMPTY                 ;
@@ -121,8 +116,6 @@ module ODIN_ffstdp #(
     
     // Neuron core
     wire               [  31: 0]        NEUR_STATE                  ;
-    wire               [ N-1: 0]        NEUR_V_UP                   ;
-    wire               [ N-1: 0]        NEUR_V_DOWN                 ;
     wire               [   3: 0]        NEUR_EVENT_OUT              ;// 神经元输出事件
     wire               [   7: 0]        PRE_NEUR_S_CNT              ;// 预神经元脉冲计数
     wire               [   6: 0]        POST_NEUR_S_CNT_0           ;// 后神经元0脉冲计数
@@ -145,8 +138,6 @@ module ODIN_ffstdp #(
     //----------------------------------------------------------------------------------
 	//	AER OUT
 	//----------------------------------------------------------------------------------
-
-
     aer_out#(
     .N              (256            ),
     .M              (10             )
@@ -253,9 +244,6 @@ module ODIN_ffstdp #(
     .CTRL_SYNARRAY_CS                   (CTRL_SYNARRAY_CS          ),// 突触数组选择信号
     .CTRL_SYNARRAY_WE                   (CTRL_SYNARRAY_WE          ),// 突触数组写使能信号
 
-    .CTRL_NEURMEM_CS                    (CTRL_NEURMEM_CS           ),// 神经元内存选择信号 (由 CTRL_POST/PRE 取代)
-    .CTRL_NEURMEM_WE                    (CTRL_NEURMEM_WE           ),// 神经元内存写使能信号
-
     .CTRL_SYNA_WR_EVENT                 (CTRL_SYNA_WR_EVENT        ),// 突触写事件
     .CTRL_SYNA_RD_EVENT                 (CTRL_SYNA_RD_EVENT        ),// 突触读事件
     .CTRL_SYNA_PROG_DATA                (CTRL_SYNA_PROG_DATA       ),// 突触编程数据
@@ -287,7 +275,8 @@ module ODIN_ffstdp #(
     .CTRL_AEROUT_POP_NEUR               (CTRL_AEROUT_POP_NEUR      ),// AER 输出弹出神经元事件
     .CTRL_AEROUT_PUSH_NEUR              (CTRL_AEROUT_PUSH_NEUR     ),// AER 输出推送神经元事件
     .CTRL_AEROUT_POP_TSTEP              (CTRL_AEROUT_POP_TSTEP     ),// AER 输出弹出时间步事件
-    .CTRL_AEROUT_TREF_FINISH            (CTRL_AEROUT_TREF_FINISH   ) // AER 输出时间参考完成事件
+    .CTRL_AEROUT_TREF_FINISH            (CTRL_AEROUT_TREF_FINISH   ),// AER 输出时间参考完成事件
+    .ctrl_state                         (ctrl_state                ) 
     );
 
     //----------------------------------------------------------------------------------
@@ -342,7 +331,7 @@ module ODIN_ffstdp #(
         .POST_NEUR_S_CNT_2                  (POST_NEUR_S_CNT_2         ),
         .POST_NEUR_S_CNT_3                  (POST_NEUR_S_CNT_3         ),
     // Outputs ------------------------------------------------
-        .synarray_rdata                     (synarray_rdata            )
+        .SYNARRAY_RDATA                     (SYNARRAY_RDATA            )
     );
 
     
@@ -358,7 +347,7 @@ module ODIN_ffstdp #(
     .RST_N                              (RST                       ),// 复位信号
 
         // Synaptic inputs ----------------------------------------
-    .SYNARRAY_RDATA                     (synarray_rdata            ),// 从突触数组读取的输入数据
+    .SYNARRAY_RDATA                     (SYNARRAY_RDATA            ),// 从突触数组读取的输入数据
 
         // Controller inputs ----------------------------------------
     .CTRL_POST_NEUR_PROG_DATA           (CTRL_POST_NEUR_PROG_DATA  ),// 神经元编程数据

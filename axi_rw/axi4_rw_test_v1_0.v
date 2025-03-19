@@ -8,8 +8,8 @@
 		parameter DATA_SIZE = 784,
 		parameter TOTAL_TRAIN_SIZE = 2 * 1000, // 训练样本数（含正负样本）
 		parameter TOTAL_TEST_SIZE  = 10* 100, //  测试样本数
+		parameter  C_M_TARGET_SLAVE_READ_ADDR	= 32'h00200000, // 读基地址
 		parameter  C_M_TARGET_SLAVE_WRITE_ADDR  = 32'h01900000, // 写基地址
-		parameter  C_M_TARGET_SLAVE_READ_ADDR	= 32'h00010000, // 读基地址
 		parameter integer C_M_AXI_READ_BURST_LEN	= 4, // 读突发长度
 		parameter integer C_M_AXI_WRITE_BURST_LEN	= 1, // 写突发长度
 		// User parameters ends
@@ -34,6 +34,9 @@
 		output wire        [  11: 0]        AER_IN_ADDR                ,
     	output wire                         IS_POS                     ,
 		output wire   						IS_TRAIN                   ,
+		// Debug
+		output wire        [   2: 0]        STATE                      ,
+		
 		// User ports ends
 		// Do not modify the ports beyond this line
 
@@ -116,6 +119,8 @@
 		.AER_IN_ADDR                        (AER_IN_ADDR               ),
 		.IS_POS                             (IS_POS                    ),
 		.IS_TRAIN                           (IS_TRAIN                  ),
+		// Debug
+    	.STATE                              (STATE                     ),
 
 		.INIT_AXI_TXN(m_axi_init_axi_txn),
 		.TXN_DONE(m_axi_txn_done),

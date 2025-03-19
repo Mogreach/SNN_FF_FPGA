@@ -25,29 +25,32 @@
 //****************************************************************************************//
 
 module Top_test(
-    input                               CLK                        ,
-    input                               RST                        ,
+    input  wire                         CLK                        ,
+    input  wire                         RST                        ,
     input  wire        [ 11: 0]         AERIN_ADDR                 ,
     input  wire                         AERIN_REQ                  ,
     input  wire                         IS_POS                     ,
     input  wire                         IS_TRAIN                   ,
     output wire                         AERIN_ACK                  ,
     output wire        [  31: 0]        GOODNESS                   ,
-    output wire                         PROCESS_DONE
+    output wire                         PROCESS_DONE,
+    output wire       [  3:0]                  ctrl_state
 );
     parameter                           M                          = 12    ;
     parameter                           N                          = 784   ;
 
-    reg                                        SCK                        ;
-    reg                                        MOSI                       ;
-    wire                                       MISO                       ;
+    reg                                 SCK                         ;
+    reg                                 MOSI                        ;
+    wire                                MISO                        ;
 
-    wire                      [ M-1: 0]        AEROUT_ADDR                ;
-    wire                                       AEROUT_REQ                 ;
-    reg                                        AEROUT_ACK                 ;
+    wire               [ M-1: 0]        AEROUT_ADDR                 ;
+    wire                                AEROUT_REQ                  ;
+    wire                                AEROUT_ACK                  ;
+    reg                                 AEROUT_ACK_reg              ;
+    reg                [   5: 0]        AEROUT_ACK_delay            ;
     
-    wire                                       ONE_SAMPLE_FINISH          ;
-    wire                                       SCHED_FULL                 ;
+    wire                                ONE_SAMPLE_FINISH           ;
+    wire                                SCHED_FULL                  ;
     
     assign PROCESS_DONE = ONE_SAMPLE_FINISH;
 ODIN_ffstdp#(
@@ -75,9 +78,25 @@ ODIN_ffstdp#(
     .GOODNESS                           (GOODNESS                  ),
     .ONE_SAMPLE_FINISH                  (ONE_SAMPLE_FINISH         ),
 // Debug ------------------------------------------
-    .SCHED_FULL                         (SCHED_FULL                )
+    .SCHED_FULL                         (SCHED_FULL                ),
+    .ctrl_state                         (ctrl_state                )
 );
 
-
-                                                                   
+always @(posedge CLK or posedge RST)
+    begin
+        if(RST)
+            AEROUT_ACK_reg <= 1'b0;
+        else if(AEROUT_REQ)
+            AEROUT_ACK_reg <= 1'b1;
+        else
+            AEROUT_ACK_reg <= 1'b0;
+    end
+always @(posedge CLK or posedge RST)
+    begin
+        if(RST)
+            AEROUT_ACK_delay <= 6'b0;
+        else
+            AEROUT_ACK_delay <= {AEROUT_ACK_delay[4:0],AEROUT_ACK_reg};
+    end
+assign AEROUT_ACK = AEROUT_ACK_delay[5];                                                                
 endmodule
